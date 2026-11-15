@@ -87,6 +87,40 @@ type Activity struct {
 	PromptFull   bool     `json:"prompt_full,omitempty"`
 	Message      string   `json:"message,omitempty"`
 	Truncated    bool     `json:"truncated,omitempty"`
+	// The fields below were added for the task replay view. All are
+	// redacted, truncated, and omitted when empty.
+	//
+	// ArgsPreview is the tool input as indented JSON (non-shell tools) or the
+	// full command line when it is longer than command_preview. Query is the
+	// search text found in the input (q, query, pattern, ...).
+	ArgsPreview string `json:"args_preview,omitempty"`
+	Query       string `json:"query,omitempty"`
+	// ResultLinks are URLs (query string and fragment dropped) and titles
+	// found in a web or MCP result.
+	ResultLinks []Link `json:"result_links,omitempty"`
+	// MessageChars is the length of the agent's final message before it was
+	// truncated.
+	MessageChars int `json:"message_chars,omitempty"`
+	// Commentary holds the agent's progress messages for the turn, read from
+	// the agent's own transcript when it has one (Codex rollout files).
+	Commentary []Note `json:"commentary,omitempty"`
+	// Trigger is what started the turn (Codex turn_trigger: composer, exec,
+	// automation_heartbeat_scheduled, ...). Originator is the agent front end
+	// (Codex session_meta.originator: "Codex Desktop", "codex_exec", ...).
+	Trigger    string `json:"trigger,omitempty"`
+	Originator string `json:"originator,omitempty"`
+}
+
+// Link is one URL seen in a tool result.
+type Link struct {
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"`
+}
+
+// Note is one agent message with its time.
+type Note struct {
+	TS   string `json:"ts,omitempty"`
+	Text string `json:"text"`
 }
 
 // Resources lists the paths, hosts, git operations, and MCP server/tool of one
