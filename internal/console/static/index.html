@@ -77,6 +77,14 @@
   .tl { margin: 0 0 16px; position: relative; }
   .tl:before { content: ""; position: absolute; left: -21px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
   a { color: var(--gold); }
+  tr.click { cursor: pointer; }
+  tr.click:hover td { background: #12151a; }
+  .tl.prompt:before { background: #6aa9ff; }
+  .tl.stop:before, .tl.end:before { background: var(--muted); }
+  .tl.fail:before { background: var(--deny); }
+  .tl .res { margin-top: 4px; }
+  .tl pre.out { white-space: pre-wrap; word-break: break-all; background: #0b0c0f; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; max-height: 160px; overflow: auto; }
+  .tl .ptext { background: #10161f; border: 1px solid #1f2b3a; border-radius: 8px; padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; }
 </style>
 </head>
 <body>
@@ -85,6 +93,7 @@
     <div class="brand"><b>REINSAARM</b><span>运行时安全</span></div>
     <nav>
       <button data-page="stream" class="active">实时流</button>
+      <button data-page="sessions">会话</button>
       <button data-page="approvals">审批 <span class="badge" id="nav-badge" hidden>0</span></button>
       <button data-page="audit">审计链</button>
       <button data-page="policy">策略</button>
@@ -122,6 +131,9 @@ let receipts = [];
 let approvals = {pending: [], resolved: []};
 let drawer = null;
 let rendered = "";
+let sessions = [];
+let sessionAgent = "";
+let detail = null;
 let sim = {kind: "shell", agent: "", main: "", server: "", tool: "", args: "", result: null, error: ""};
 
 function agentName(c) {
@@ -178,6 +190,15 @@ async function refresh() {
     const q = page === "stream" ? filter : "all";
     receipts = (await api("/api/receipts?filter=" + encodeURIComponent(q))).receipts || [];
   }
+  if (page === "sessions") {
+    if (openId) {
+      try { detail = await api("/api/sessions/" + encodeURIComponent(decodeURIComponent(openId))); }
+      catch (e) { detail = {error: String(e.message || e)}; }
+    } else {
+      detail = null;
+      sessions = (await api("/api/sessions")).sessions || [];
+    }
+  }
   if (page === "stream" || page === "approvals") {
     approvals = await api("/api/approvals");
     if (openId) drawer = (approvals.pending || []).find(g => g.id === openId) || drawer;
@@ -207,6 +228,7 @@ function render() {
   rendered = page;
   view.className = "content" + (page === "stream" ? "" : " single");
   if (page === "stream") view.innerHTML = streamHTML();
+  else if (page === "sessions") view.innerHTML = openId ? sessionDetailHTML() : sessionsHTML();
   else if (page === "approvals") view.innerHTML = approvalsHTML();
   else if (page === "audit") view.innerHTML = auditHTML();
   else if (page === "policy") view.innerHTML = `<h1>策略</h1>${simHTML()}<div id="policy">加载中…</div>`;
@@ -233,6 +255,77 @@ function streamHTML() {
     </div>
     <table><thead><tr><th>时间</th><th>Agent</th><th>命令</th><th>原因</th><th>策略 → 执行</th></tr></thead><tbody>${rows}</tbody></table>
     </section><aside><h1>待审批</h1>${cards}<h1 style="margin-top:18px;font-size:16px">最近处理</h1>${done}</aside>`;
+}
+function whenFull(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleString("zh-CN", {hour12:false, month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit"});
+}
+function sessionsHTML() {
+  const agents = [...new Set(sessions.map(x => x.client))];
+  const list = sessions.filter(x => !sessionAgent || x.client === sessionAgent);
+  const rows = list.map(x => `<tr class="click" data-session="${esc(encodeURIComponent(x.key))}">
+    <td>${esc(agentName(x.client))}</td>
+    <td class="mono" title="${esc(x.cwd)}">${esc(x.project || "—")}</td>
+    <td class="mono muted">${esc(whenFull(x.started))}</td>
+    <td class="mono muted">${esc(whenFull(x.last_ts))}</td>
+    <td>${x.prompts}</td><td>${x.tools}</td>
+    <td>${x.denied ? `<span class="badtext">${x.denied}</span>` : "0"}</td>
+    <td>${x.failed ? `<span class="badtext">${x.failed}</span>` : "0"}</td>
+    <td>${x.ended ? `<span class="muted">已结束</span>` : x.running ? `<span class="oktext">进行中</span>` : `<span class="muted">空闲</span>`}</td></tr>`).join("")
+    || `<tr><td colspan="9" class="muted">还没有会话。安装活动事件后（reinsaarm install-hooks codex --trust 或 workbuddy），新会话会出现在这里。</td></tr>`;
+  return `<section><h1>会话</h1>
+    <p class="muted">每个 Agent 会话里用户说了什么、调用了哪些工具、结果如何。提示词默认只存打码后的摘要。</p>
+    <div class="filters">${[["", "全部"], ...agents.map(a => [a, agentName(a)])].map(([id, label]) =>
+      `<button data-sagent="${esc(id)}" class="${sessionAgent===id?"on":""}">${esc(label)}</button>`).join("")}</div>
+    <table><thead><tr><th>Agent</th><th>项目</th><th>开始</th><th>最近活动</th><th>提示</th><th>工具调用</th><th>拒绝</th><th>失败</th><th>状态</th></tr></thead>
+    <tbody>${rows}</tbody></table></section>`;
+}
+function resultHTML(r) {
+  if (!r) return `<div class="res muted">没有结果记录（被拦截、仍在运行，或未安装执行后事件）</div>`;
+  const a = r.activity || {};
+  const bits = [];
+  if (a.success === true) bits.push(`<span class="oktext">✓ 成功</span>`);
+  else if (a.success === false) bits.push(`<span class="badtext">✗ 失败</span>`);
+  else bits.push(`<span class="muted">已返回</span>`);
+  if (a.exit_code !== undefined && a.exit_code !== null) bits.push(`退出码 <span class="mono">${esc(a.exit_code)}</span>`);
+  if (a.interrupted) bits.push("被中断");
+  if (a.duration_ms !== undefined && a.duration_ms !== null) bits.push(`${a.duration_from === "hooks" ? "约 " : ""}${a.duration_ms < 1000 ? a.duration_ms + " ms" : (a.duration_ms/1000).toFixed(1) + " s"}`);
+  if ((a.files||[]).length) bits.push(`文件 <span class="mono">${esc(a.files.join(", "))}</span>`);
+  const out = a.error ? `<pre class="out mono badtext">${esc(a.error)}</pre>` : a.output ? `<pre class="out mono">${esc(a.output)}</pre>` : "";
+  return `<div class="res">${bits.join(" · ")}</div>${out}`;
+}
+function tlHTML(it) {
+  const t = `<span class="mono muted">${esc(when(it.ts))}</span> `;
+  const e = it.event || {};
+  const a = e.activity || {};
+  if (it.type === "start") return `<div class="tl"><div>${t}<strong>会话开始</strong> <span class="muted">${esc(a.source || "")}${a.model ? " · " + esc(a.model) : ""}</span></div></div>`;
+  if (it.type === "end") return `<div class="tl end"><div>${t}<strong>会话结束</strong> <span class="muted">${esc(a.reason || "")}</span></div></div>`;
+  if (it.type === "prompt") return `<div class="tl prompt"><div>${t}<strong>用户提示</strong> <span class="muted">${a.prompt_chars ? "共 " + a.prompt_chars + " 字" : ""}${a.prompt_full ? " · 全文" : " · 摘要"}</span></div>
+    <div class="ptext">${esc(a.prompt || "")}</div></div>`;
+  if (it.type === "stop") return `<div class="tl stop"><div>${t}<strong>Agent 完成本轮</strong></div>${a.message ? `<div class="muted">${esc(a.message)}</div>` : ""}</div>`;
+  if (it.type === "tool") {
+    const d = it.decision, r = it.result;
+    const head = d || r;
+    const fail = (d && d.enforced_decision === "DENY") || (r && r.activity && r.activity.success === false);
+    const blocked = d && (d.enforced_decision === "DENY" || d.enforced_decision === "DEFER");
+    return `<div class="tl ${fail ? "fail" : ""}"><div>${t}${kindTag(head)}<span class="mono">${esc(what(head))}</span> ${d ? chips(d) : `<span class="muted">（无执行前决定）</span>`}</div>
+      ${d && d.enforced_decision !== "ALLOW" ? `<div class="muted">${esc(d.reason || "")} <span class="mono">${esc((d.rule_ids||[]).join(", "))}</span></div>` : ""}
+      ${blocked ? "" : resultHTML(r)}</div>`;
+  }
+  return `<div class="tl"><div>${t}${esc(e.event_type || "")}</div></div>`;
+}
+function sessionDetailHTML() {
+  if (!detail) return `<section><p class="muted">加载中…</p></section>`;
+  if (detail.error) return `<section><h1>会话</h1><p class="badtext">${esc(detail.error)}</p><button class="btn" data-page-jump="sessions">返回列表</button></section>`;
+  const s = detail.session || {};
+  const items = (detail.items || []).map(tlHTML).join("") || `<p class="muted">这个会话没有记录。</p>`;
+  return `<section><div class="row-actions" style="margin:0 0 10px"><button class="btn" data-page-jump="sessions">← 会话列表</button></div>
+    <h1>${esc(agentName(s.client))} · ${esc(s.project || "未知项目")}</h1>
+    <p class="muted mono">${esc(s.cwd || "")} · 会话 ${esc(s.session_id)} · 开始 ${esc(whenFull(s.started))}</p>
+    <p class="muted">提示 ${s.prompts} · 工具调用 ${s.tools} · 拒绝 ${s.denied} · 失败 ${s.failed}</p>
+    <div class="timeline">${items}</div></section>`;
 }
 function card(g) {
   return `<div class="card"><div class="mono">${esc(g.id)}</div>
@@ -390,6 +483,10 @@ async function loadHealth() {
 function bind() {
   document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { filter = b.dataset.filter; refresh(); });
   document.querySelectorAll("[data-page-jump]").forEach(b => b.onclick = () => go(b.dataset.pageJump));
+  document.querySelectorAll("[data-sagent]").forEach(b => b.onclick = () => { sessionAgent = b.dataset.sagent; render(); });
+  document.querySelectorAll("[data-session]").forEach(tr => tr.onclick = () => {
+    openId = tr.dataset.session; location.hash = "#/sessions/" + openId; detail = null; refresh();
+  });
   document.querySelectorAll("[data-act]").forEach(b => b.onclick = async (ev) => {
     ev.stopPropagation();
     await api("/api/approvals/" + b.dataset.id + "/" + b.dataset.act, {method:"POST"});
@@ -414,7 +511,7 @@ function bind() {
     $("#foot-audit").textContent = boot.audit_ok ? "通过" : "未通过";
   };
 }
-function go(p) { page = p; location.hash = "#/" + p; drawer = null; refresh(); }
+function go(p) { page = p; openId = ""; location.hash = "#/" + p; drawer = null; refresh(); }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
   document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
   b.classList.add("active");

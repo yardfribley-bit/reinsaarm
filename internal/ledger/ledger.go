@@ -29,8 +29,16 @@ type Receipt struct {
 	IdentityFP string `json:"identity_fp"`
 	Client     string `json:"client"`
 	SessionID  string `json:"session_id"`
-	Tool       string `json:"tool"`
-	Kind       string `json:"kind"`
+	// CWD, TurnID, ToolUseID, RefSeq, and Activity were added for activity
+	// monitoring. They are omitted when empty, so receipts written before
+	// them still verify.
+	CWD       string    `json:"cwd,omitempty"`
+	TurnID    string    `json:"turn_id,omitempty"`
+	ToolUseID string    `json:"tool_use_id,omitempty"`
+	RefSeq    uint64    `json:"ref_seq,omitempty"`
+	Activity  *Activity `json:"activity,omitempty"`
+	Tool      string    `json:"tool"`
+	Kind      string    `json:"kind"`
 	// Resources is what the normalized action touches. It is omitted when
 	// empty, so receipts written before it existed still verify.
 	Resources        *Resources `json:"resources,omitempty"`
@@ -52,6 +60,33 @@ type Receipt struct {
 	TS               string     `json:"ts"`
 	ReceiptHash      string     `json:"receipt_hash,omitempty"`
 	Signature        string     `json:"signature,omitempty"`
+}
+
+// Activity is the observed part of a non-decision event: a tool result, a
+// prompt, a session start or end, or the agent stopping. Text fields are
+// redacted and truncated before they are stored.
+type Activity struct {
+	// Hook is the agent's own event name, for example PostToolUse or AfterTool.
+	Hook           string `json:"hook,omitempty"`
+	Source         string `json:"source,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	Model          string `json:"model,omitempty"`
+	PermissionMode string `json:"permission_mode,omitempty"`
+	Success        *bool  `json:"success,omitempty"`
+	ExitCode       *int   `json:"exit_code,omitempty"`
+	Interrupted    bool   `json:"interrupted,omitempty"`
+	DurationMS     *int64 `json:"duration_ms,omitempty"`
+	// DurationFrom is "agent" when the agent reported the duration, or
+	// "hooks" when it is the time between the pre-tool and post-tool hooks.
+	DurationFrom string   `json:"duration_from,omitempty"`
+	Files        []string `json:"files,omitempty"`
+	Output       string   `json:"output,omitempty"`
+	Error        string   `json:"error,omitempty"`
+	Prompt       string   `json:"prompt,omitempty"`
+	PromptChars  int      `json:"prompt_chars,omitempty"`
+	PromptFull   bool     `json:"prompt_full,omitempty"`
+	Message      string   `json:"message,omitempty"`
+	Truncated    bool     `json:"truncated,omitempty"`
 }
 
 // Resources lists the paths, hosts, git operations, and MCP server/tool of one

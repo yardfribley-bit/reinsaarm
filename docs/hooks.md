@@ -67,6 +67,10 @@ Docs: <https://geminicli.com/docs/hooks/reference/> (page last-updated line: Apr
 
 See [workbuddy.md](workbuddy.md). Short version: the CodeBuddy IDE settings hook is real, looks like Claude Code, and documents `modifiedInput`. WorkBuddy has its own adapter (`--client workbuddy`): it embeds the CodeBuddy Code CLI, whose PreToolUse result reads `updatedInput` (the adapter sends both), treats `continue: false` as "end the whole turn" (the adapter never sends it), and wraps deferred and MCP tools in `DeferExecuteTool` (unwrapped before policy).
 
+## Activity events
+
+`PostToolUse`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `Stop` (and each CLI's equivalents) are recorded, never enforced. The hook dispatches on `hook_event_name`: `PreToolUse`, `BeforeTool`, or no event name take the decision path above; everything else is observed and exits 0. Field sources and per-agent details are in [activity.md](activity.md).
+
 ## Normalized action model
 
 The hook forwards `tool_name`, `tool_input`, and (Gemini only) `mcp_context`. The sidecar's `internal/normalize` maps them onto one action: a kind plus resources. Unknown tools become `other`; the hook's failure behaviour does not change.

@@ -109,6 +109,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/policy/test", s.policyTest)
 	mux.HandleFunc("/api/audit/verify", s.verify)
 	mux.HandleFunc("/api/health", s.health)
+	mux.HandleFunc("/api/sessions", s.sessions)
+	mux.HandleFunc("/api/sessions/", s.sessionDetail)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.authorized(w, r) {
 			http.Error(w, "reinsaarm: missing or invalid token", http.StatusUnauthorized)
@@ -479,7 +481,16 @@ func (s *Server) healthItems() []healthItem {
 	hookOK := len(statuses) > 0
 	hookKey := ""
 	hookDetail := "未安装"
+	var activityOn, activityOff []string
 	for _, st := range statuses {
+		if st.Hook.Event != "pre_tool_use" {
+			if st.State == "trusted" {
+				activityOn = append(activityOn, st.Hook.Event)
+			} else {
+				activityOff = append(activityOff, st.Hook.Event+"("+st.State+")")
+			}
+			continue
+		}
 		hookKey = st.Hook.Key
 		if st.State != "trusted" {
 			hookOK = false
@@ -492,6 +503,14 @@ func (s *Server) healthItems() []healthItem {
 		hookOK = false
 	}
 	items = append(items, healthItem{ID: "hook_trust", Name: "Codex 钩子信任", OK: hookOK, Detail: hookDetail, Key: hookKey})
+	actDetail := "未安装活动事件：reinsaarm install-hooks codex --trust"
+	if len(activityOn) > 0 {
+		actDetail = "已记录 " + strings.Join(activityOn, ", ")
+	}
+	if len(activityOff) > 0 {
+		actDetail += "；未信任 " + strings.Join(activityOff, ", ")
+	}
+	items = append(items, healthItem{ID: "codex_activity", Name: "Codex 活动事件", OK: len(activityOn) == 5 && len(activityOff) == 0, Detail: actDetail})
 
 	level, found := codextrust.ProjectTrust(userCfg, project)
 	projOK := found && level == "trusted"
@@ -644,7 +663,7 @@ func workBuddyHealth(project string) (healthItem, bool) {
 			present = true
 			if st.CoversAll && st.Disabled == "" {
 				ok = true
-				where = append(where, p)
+				where = append(where, fmt.Sprintf("%s（活动事件 %d/%d）", p, len(st.Events), len(workbuddy.ObservedEvents)))
 			} else {
 				where = append(where, p+"（matcher 不全或 hooks 被禁用）")
 			}

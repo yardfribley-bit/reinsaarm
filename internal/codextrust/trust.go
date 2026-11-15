@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -97,6 +98,12 @@ func FindReins(hooksPath string) ([]Hook, error) {
 			}
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if (out[i].Event == "pre_tool_use") != (out[j].Event == "pre_tool_use") {
+			return out[i].Event == "pre_tool_use"
+		}
+		return out[i].Key < out[j].Key
+	})
 	return out, nil
 }
 

@@ -46,6 +46,9 @@ type Config struct {
 	PublicKey    ed25519.PublicKey
 	PrivateKey   ed25519.PrivateKey
 	Judge        judge.Judge
+	// FullPrompts stores whole prompts (secrets masked) instead of a short
+	// summary. config.yaml: record_full_prompts.
+	FullPrompts bool
 }
 
 // Server is safe for concurrent hook connections.
@@ -59,9 +62,22 @@ type Server struct {
 	modTime  time.Time
 	sessions map[string]*sessionState
 	seenFD   map[string]bool
+	// calls maps a pre-tool receipt to its later result, keyed by
+	// client+session+tool_use_id (or the action digest when the agent sends
+	// no tool_use_id). It is bounded and lost on restart; the console can
+	// still pair receipts by tool_use_id.
+	calls     map[string]callRef
+	callOrder []string
 
 	led *ledger.Ledger
 }
+
+type callRef struct {
+	Seq uint64
+	At  time.Time
+}
+
+const maxCalls = 4096
 
 type sessionState struct {
 	Intent string
@@ -89,6 +105,7 @@ func New(cfg Config) (*Server, error) {
 		led:      led,
 		sessions: map[string]*sessionState{},
 		seenFD:   map[string]bool{},
+		calls:    map[string]callRef{},
 	}
 	if err := s.reload(true); err != nil {
 		return nil, err
@@ -177,6 +194,10 @@ func (s *Server) handle(conn net.Conn) {
 		})
 		return
 	}
+	if req.Schema == hooks.SchemaObserve {
+		_ = json.NewEncoder(conn).Encode(s.Observe(req))
+		return
+	}
 	_ = json.NewEncoder(conn).Encode(s.Decide(req))
 }
 
@@ -247,6 +268,9 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		AgentID:          s.cfg.AgentID,
 		Client:           req.Client,
 		SessionID:        req.SessionID,
+		CWD:              req.CWD,
+		TurnID:           req.TurnID,
+		ToolUseID:        req.ToolUseID,
 		Tool:             action.Tool,
 		Kind:             action.Kind,
 		ActionDigest:     redact.Digest(action.Tool, normalize.HashCommand(action), action.Paths, action.Hosts),
@@ -272,6 +296,8 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 	written, err := s.led.Append(rec)
 	if err != nil {
 		comp.Degraded = true
+	} else {
+		s.rememberCall(callKey(req.Client, req.SessionID, req.ToolUseID, rec.ActionDigest), written.Seq)
 	}
 	s.noteSession(req.SessionID, req.Intent, action, enforced)
 

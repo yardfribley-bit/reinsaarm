@@ -21,6 +21,10 @@ type File struct {
 	WebListen     string `yaml:"web_listen"`
 	EgressListen  string `yaml:"egress_listen"`
 	Sensor        bool   `yaml:"sensor"`
+	// RecordFullPrompts stores whole user prompts (secrets masked, capped at
+	// 8000 characters) in activity receipts. Default false: a short redacted
+	// summary is stored.
+	RecordFullPrompts bool `yaml:"record_full_prompts,omitempty"`
 }
 
 // Default builds paths under dir. developerHome is the home used to expand ~.
