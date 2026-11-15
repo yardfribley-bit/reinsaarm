@@ -73,7 +73,12 @@ func (s *Server) Observe(req hooks.Request) hooks.Response {
 		rec.Tool = req.Event
 		rec.Kind = "session"
 	}
-	rec.Activity = activity.Build(req.Client, req.Event, payload, paths, activity.Options{FullPrompts: s.cfg.FullPrompts})
+	if req.TurnID != "" {
+		if _, ok := payload["turn_id"]; !ok {
+			payload["turn_id"] = req.TurnID
+		}
+	}
+	rec.Activity = activity.BuildFor(req.Client, req.Event, rec.Kind, payload, paths, s.activityOptions())
 	if evType == activity.TypeToolResult {
 		if ref, ok := s.takeCall(callKey(req.Client, req.SessionID, req.ToolUseID, rec.ActionDigest)); ok {
 			rec.RefSeq = ref.Seq

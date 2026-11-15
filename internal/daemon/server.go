@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/yardfribley-bit/reinsaarm/internal/activity"
 	"html"
 	"io"
 	"net"
@@ -49,6 +50,20 @@ type Config struct {
 	// FullPrompts stores whole prompts (secrets masked) instead of a short
 	// summary. config.yaml: record_full_prompts.
 	FullPrompts bool
+	// Capture limits for the task replay view (config.yaml capture:). Zero
+	// values turn a capture off; use config.Capture.Limits for defaults.
+	ArgsPreview   int
+	OutputPreview int
+	FinalMessage  int
+	ResultLinks   bool
+	Transcript    bool
+}
+
+func (s *Server) activityOptions() activity.Options {
+	return activity.Options{
+		FullPrompts: s.cfg.FullPrompts, OutputLimit: s.cfg.OutputPreview, MessageLimit: s.cfg.FinalMessage,
+		Links: s.cfg.ResultLinks, Transcript: s.cfg.Transcript, Home: s.cfg.Home,
+	}
 }
 
 // Server is safe for concurrent hook connections.
@@ -287,6 +302,12 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		Shadow:           comp.Shadow,
 		LatencyUS:        time.Since(start).Microseconds(),
 		TS:               time.Now().UTC().Format(time.RFC3339Nano),
+	}
+	if pv, q, cut := activity.ArgsPreview(action.Kind, action.Command, req.Input, s.cfg.ArgsPreview); pv != "" || q != "" {
+		rec.Activity = &ledger.Activity{Hook: req.Event, ArgsPreview: pv, Query: q, Truncated: cut}
+		if rec.Activity.Hook == "" {
+			rec.Activity.Hook = "PreToolUse"
+		}
 	}
 	if verdict != nil {
 		rec.JudgeVerdict = verdict.Verdict
