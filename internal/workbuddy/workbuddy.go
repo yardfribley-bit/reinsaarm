@@ -67,7 +67,10 @@ type Status struct {
 	CoversAll bool     `json:"covers_all"`
 	Others    []string `json:"others,omitempty"`
 	Disabled  string   `json:"disabled,omitempty"`
-	Error     string   `json:"error,omitempty"`
+	// Events lists the observation events (PostToolUse, SessionStart, ...)
+	// that also run the ReinsAARM hook in this file.
+	Events []string `json:"events,omitempty"`
+	Error  string   `json:"error,omitempty"`
 }
 
 // Inspect reads one settings file. A missing file is not an error.
@@ -95,6 +98,7 @@ func Inspect(path string) Status {
 		}
 	}
 	hooks, _ := doc["hooks"].(map[string]any)
+	st.Events = EventsWith(hooks, Needle)
 	list, _ := hooks["PreToolUse"].([]any)
 	for _, item := range list {
 		group, _ := item.(map[string]any)
@@ -140,4 +144,32 @@ func MatchesAll(m string) bool {
 		}
 	}
 	return true
+}
+
+// ObservedEvents are the activity events install-hooks workbuddy adds next
+// to PreToolUse.
+var ObservedEvents = []string{"PostToolUse", "PostToolUseFailure", "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"}
+
+// EventsWith returns the events in ObservedEvents whose handlers include a
+// command containing needle, in ObservedEvents order.
+func EventsWith(hooks map[string]any, needle string) []string {
+	var out []string
+	for _, ev := range ObservedEvents {
+		list, _ := hooks[ev].([]any)
+		found := false
+		for _, item := range list {
+			group, _ := item.(map[string]any)
+			handlers, _ := group["hooks"].([]any)
+			for _, h := range handlers {
+				hm, _ := h.(map[string]any)
+				if cmd, _ := hm["command"].(string); strings.Contains(cmd, needle) {
+					found = true
+				}
+			}
+		}
+		if found {
+			out = append(out, ev)
+		}
+	}
+	return out
 }

@@ -97,6 +97,7 @@ func planFile(client, path, bin, stateHome, socket string) ([]Plan, error) {
 	default:
 		mergeClaude(doc, command)
 	}
+	mergeObservers(doc, client, command)
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return nil, err
@@ -284,6 +285,84 @@ func mergeWorkBuddy(doc map[string]any, command string) {
 		},
 	})
 	hooks["PreToolUse"] = list
+}
+
+// Observer is one observation hook installed next to the pre-tool hook.
+// Matcher is omitted for events that take none (Codex ignores a matcher on
+// UserPromptSubmit and Stop, and leaving it out keeps the trust hash stable).
+type Observer struct {
+	Event      string
+	Matcher    string
+	HasMatcher bool
+	Timeout    int
+}
+
+// Observers lists the observation hooks per client. The event names match
+// hooks.ObservedEvents. Timeouts are in the client's unit: seconds, except
+// Gemini (milliseconds). Codex clamps SessionEnd to 3 s; it is written as 3
+// so the stored trust hash matches the normalized definition Codex hashes.
+func Observers(client string) []Observer {
+	sec := func(event string, matcher bool, t int) Observer {
+		o := Observer{Event: event, Timeout: t}
+		if matcher {
+			o.Matcher, o.HasMatcher = "*", true
+		}
+		return o
+	}
+	switch client {
+	case "codex":
+		return []Observer{
+			sec("PostToolUse", true, 5), sec("SessionStart", true, 5), sec("SessionEnd", true, 3),
+			sec("UserPromptSubmit", false, 5), sec("Stop", false, 5),
+		}
+	case "claude-code":
+		return []Observer{
+			sec("PostToolUse", true, 5), sec("PostToolUseFailure", true, 5), sec("SessionStart", true, 5),
+			sec("SessionEnd", true, 3), sec("UserPromptSubmit", false, 5), sec("Stop", false, 5),
+		}
+	case "gemini":
+		return []Observer{
+			sec("AfterTool", true, 5000), sec("SessionStart", true, 5000), sec("SessionEnd", true, 3000),
+			sec("BeforeAgent", false, 5000), sec("AfterAgent", false, 5000),
+		}
+	case "workbuddy":
+		return []Observer{
+			sec("PostToolUse", true, 5), sec("PostToolUseFailure", true, 5), sec("SessionStart", true, 5),
+			sec("SessionEnd", true, 3), sec("UserPromptSubmit", false, 5), sec("Stop", false, 5),
+		}
+	case "codebuddy":
+		return []Observer{
+			sec("PostToolUse", true, 5), sec("SessionStart", true, 5), sec("SessionEnd", true, 3),
+			sec("UserPromptSubmit", false, 5), sec("Stop", false, 5),
+		}
+	}
+	return nil
+}
+
+// mergeObservers adds each observation hook once. A rerun replaces the
+// command in place (new binary path) and never duplicates a handler.
+func mergeObservers(doc map[string]any, client, command string) {
+	hooks := object(doc, "hooks")
+	needle := "reinsaarm hook --client " + client
+	if client == "workbuddy" {
+		needle = "hook --client workbuddy"
+	}
+	for _, o := range Observers(client) {
+		list := array(hooks, o.Event)
+		if replaceCommand(list, needle, command) {
+			hooks[o.Event] = list
+			continue
+		}
+		handler := map[string]any{"type": "command", "command": command, "timeout": o.Timeout}
+		if client == "gemini" {
+			handler["name"] = "reinsaarm-activity"
+		}
+		group := map[string]any{"hooks": []any{handler}}
+		if o.HasMatcher {
+			group["matcher"] = o.Matcher
+		}
+		hooks[o.Event] = append(list, group)
+	}
 }
 
 func object(doc map[string]any, key string) map[string]any {

@@ -72,7 +72,7 @@ func TestInstallWorkBuddyUserScope(t *testing.T) {
 		t.Fatalf("idempotent: %v %v", more, err)
 	}
 	b, _ = os.ReadFile(filepath.Join(ai, "settings.json"))
-	if strings.Count(string(b), "--client workbuddy") != 1 {
+	if strings.Count(string(b), "--client workbuddy") != 1+len(Observers("workbuddy")) {
 		t.Fatalf("duplicated: %s", b)
 	}
 

@@ -40,6 +40,11 @@ type Input struct {
 	ToolName       string         `json:"tool_name"`
 	ToolInput      map[string]any `json:"tool_input"`
 	PermissionMode string         `json:"permission_mode"`
+	// ToolUseID pairs a PreToolUse call with its PostToolUse result. Codex
+	// 0.151, Claude Code, and WorkBuddy send it; Gemini CLI does not.
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	// TurnID is Codex's per-turn id.
+	TurnID string `json:"turn_id,omitempty"`
 	// MCPDescription is optional. CLIs do not currently put tool descriptions
 	// on PreToolUse; callers and tests may set it.
 	MCPDescription string `json:"mcp_description,omitempty"`
@@ -68,7 +73,20 @@ type Request struct {
 	MCPDescription    string         `json:"mcp_description,omitempty"`
 	MCPDefinitionHash string         `json:"mcp_definition_hash,omitempty"`
 	MCPContext        *MCPContext    `json:"mcp_context,omitempty"`
+	ToolUseID         string         `json:"tool_use_id,omitempty"`
+	TurnID            string         `json:"turn_id,omitempty"`
+	// Event and Payload are set on reinsaarm.observe.v1 requests only:
+	// Event is the agent's hook event name and Payload the hook JSON with
+	// long strings clipped (see ClipPayload).
+	Event   string         `json:"event,omitempty"`
+	Payload map[string]any `json:"payload,omitempty"`
 }
+
+// Request schemas.
+const (
+	SchemaDecide  = "reinsaarm.decide.v1"
+	SchemaObserve = "reinsaarm.observe.v1"
+)
 
 // Response is the sidecar decision.
 type Response struct {
@@ -106,9 +124,11 @@ func Parse(r io.Reader) (Input, error) {
 // ToRequest builds a sidecar request. The sidecar re-extracts commands and hosts.
 func ToRequest(client string, in Input) Request {
 	return Request{
-		Schema:            "reinsaarm.decide.v1",
+		Schema:            SchemaDecide,
 		Client:            client,
 		SessionID:         in.SessionID,
+		ToolUseID:         in.ToolUseID,
+		TurnID:            in.TurnID,
 		CWD:               in.CWD,
 		Tool:              in.ToolName,
 		Input:             in.ToolInput,

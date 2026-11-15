@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/signal"
@@ -182,6 +184,7 @@ func cmdRun(args []string) error {
 		ApprovalPath: cfg.Approvals, ChainID: cfg.ChainID, AgentID: cfg.AgentID,
 		Home: cfg.DeveloperHome, Web: cfg.WebListen, Egress: cfg.EgressListen,
 		Sensor: cfg.Sensor, PublicKey: pub, PrivateKey: priv,
+		FullPrompts: cfg.RecordFullPrompts,
 	})
 	if err != nil {
 		return err
@@ -203,7 +206,18 @@ func cmdHook(args []string) error {
 	if *client == "" {
 		exitHook("codex", "--client is required")
 	}
-	in, err := hooks.ReadStdin()
+	raw, err := io.ReadAll(io.LimitReader(os.Stdin, 8<<20))
+	if err != nil {
+		exitHook(*client, err.Error())
+	}
+	// Observation events (PostToolUse, SessionStart, UserPromptSubmit, Stop,
+	// ...) are recorded and never block: exit 0 with neutral output, even
+	// when the sidecar is down or the payload is odd.
+	if event, perr := hooks.PeekEvent(raw); perr == nil && !hooks.IsDecisionEvent(event) {
+		observeHook(*client, *home, *socket, raw)
+		return nil
+	}
+	in, err := hooks.Parse(bytes.NewReader(raw))
 	if err != nil {
 		exitHook(*client, err.Error())
 	}
@@ -228,6 +242,33 @@ func cmdHook(args []string) error {
 		fmt.Fprintln(os.Stderr, "reinsaarm:", resp.Reason)
 	}
 	return nil
+}
+
+// observeHook forwards one observation event to the sidecar. Every error is
+// swallowed: an observation hook must never block or slow the agent much,
+// so it uses a short timeout and always exits 0.
+func observeHook(client, home, socket string, raw []byte) {
+	defer os.Stdout.Write(hooks.NeutralOutput(client))
+	var payload map[string]any
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		fmt.Fprintln(os.Stderr, "reinsaarm: observe: bad payload:", err)
+		return
+	}
+	event, _ := payload["hook_event_name"].(string)
+	if !hooks.Observes(client, event) {
+		return
+	}
+	if socket == "" {
+		cfg, err := loadConfig(home)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "reinsaarm: observe:", err)
+			return
+		}
+		socket = cfg.Socket
+	}
+	if _, err := hooks.Exchange(socket, hooks.ObserveRequest(client, payload), 2*time.Second); err != nil {
+		fmt.Fprintln(os.Stderr, "reinsaarm: observe: sidecar unavailable:", err)
+	}
 }
 
 // exitHook always exits 2 with a non-empty stderr reason. Codex 0.151 fails
@@ -470,6 +511,12 @@ func cmdDoctor(args []string) error {
 	statuses := codextrust.Inspect(found, configs)
 	failed := false
 	for _, st := range statuses {
+		if st.Hook.Event != "pre_tool_use" && st.State != "trusted" {
+			// An untrusted activity hook does not weaken blocking; it only
+			// leaves gaps in the session timeline.
+			fmt.Printf("note: activity hook %s is %s and will not record (run `reinsaarm install-hooks codex --trust` or /hooks)\n", st.Hook.Key, st.State)
+			continue
+		}
 		switch st.State {
 		case "trusted":
 			fmt.Printf("trusted %s\n", st.Hook.Key)
@@ -479,6 +526,17 @@ func cmdDoctor(args []string) error {
 		default:
 			failed = true
 			fmt.Fprintf(os.Stderr, "UNTRUSTED Codex hook will not run\nkey: %s\ntrusted_hash: %s\nNo matching trusted_hash in %s\nOpen Codex and run /hooks, or `reinsaarm install-hooks codex --trust`.\nManaged requirements.toml hooks do not need this entry.\n", st.Hook.Key, st.Hook.Hash, strings.Join(configs, " or "))
+		}
+	}
+	byFile := map[string][]string{}
+	for _, h := range found {
+		if h.Event != "pre_tool_use" {
+			byFile[h.Path] = append(byFile[h.Path], codexEventName(h.Event))
+		}
+	}
+	for _, h := range found {
+		if h.Event == "pre_tool_use" {
+			printActivity(h.Path, byFile[h.Path], codexObserved, "reinsaarm install-hooks codex --trust")
 		}
 	}
 	projectAbs, err := filepath.Abs(project)
@@ -703,6 +761,7 @@ func doctorWorkBuddy(project, configDir, stateFlag string) error {
 		}
 		installed = true
 		fmt.Printf("installed %s (matcher %q)\n", p, st.Matcher)
+		printActivity(p, st.Events, workbuddy.ObservedEvents, "reinsaarm install-hooks workbuddy")
 		if !st.CoversAll {
 			failed = true
 			fmt.Fprintf(os.Stderr, "PARTIAL %s: matcher %q does not match every tool (Bash, Read, Write, Edit, WebFetch, DeferExecuteTool, mcp__*). Use \"*\".\n", p, st.Matcher)
@@ -733,6 +792,47 @@ func doctorWorkBuddy(project, configDir, stateFlag string) error {
 		return fmt.Errorf("workbuddy hook check failed")
 	}
 	return nil
+}
+
+var codexObserved = []string{"PostToolUse", "SessionStart", "SessionEnd", "UserPromptSubmit", "Stop"}
+
+func codexEventName(label string) string {
+	switch label {
+	case "post_tool_use":
+		return "PostToolUse"
+	case "session_start":
+		return "SessionStart"
+	case "session_end":
+		return "SessionEnd"
+	case "user_prompt_submit":
+		return "UserPromptSubmit"
+	case "stop":
+		return "Stop"
+	}
+	return label
+}
+
+// printActivity reports which activity events are installed. Missing ones
+// are a note, not a failure: blocking still works without them.
+func printActivity(path string, have, want []string, fix string) {
+	got := map[string]bool{}
+	for _, e := range have {
+		got[e] = true
+	}
+	var missing, present []string
+	for _, e := range want {
+		if got[e] {
+			present = append(present, e)
+		} else {
+			missing = append(missing, e)
+		}
+	}
+	if len(present) > 0 {
+		fmt.Printf("activity events %s: %s\n", path, strings.Join(present, ", "))
+	}
+	if len(missing) > 0 {
+		fmt.Printf("note %s: activity events not installed: %s (session timeline incomplete; run `%s`)\n", path, strings.Join(missing, ", "), fix)
+	}
 }
 
 // splitHookCommand splits the command install-hooks writes (single-quoted
