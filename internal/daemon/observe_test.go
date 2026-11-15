@@ -126,3 +126,38 @@ func TestObserveWorkBuddyPairing(t *testing.T) {
 		t.Fatalf("%+v %+v", r, r.Activity)
 	}
 }
+
+// MCP calls keep a masked args preview and the search text on the decision
+// receipt; the result keeps its links without query strings.
+func TestDecisionArgsPreviewAndLinks(t *testing.T) {
+	srv := startServer(t, func(c *Config) { c.ArgsPreview, c.OutputPreview, c.ResultLinks = 600, 800, true })
+	sock := srv.cfg.Socket
+	tool := "mcp__codex_apps__search_service__web_run"
+	in := map[string]any{"system2_search_query": []any{map[string]any{"q": "LoopX github"}}, "api_key": "sk-proj-AbCdEfGhIjKlMnOpQrStUvWx123456"}
+	pre, err := hooks.Exchange(sock, hooks.Request{Schema: hooks.SchemaDecide, Client: "codex", SessionID: "m1", CWD: "/p",
+		Tool: tool, Input: in, ToolUseID: "call_W", TurnID: "T1"}, 2*time.Second)
+	if err != nil || pre.Enforced != string(decision.Allow) {
+		t.Fatalf("pre %+v %v", pre, err)
+	}
+	observe(t, sock, "codex", map[string]any{"session_id": "m1", "cwd": "/p", "hook_event_name": "PostToolUse", "turn_id": "T1",
+		"tool_name": tool, "tool_input": in, "tool_use_id": "call_W",
+		"tool_response": "LoopX (https://github.com/loopx/loopx?token=abc) 【turn0search0】"})
+	recs, _ := ledger.Tail(srv.cfg.AuditPath, 0)
+	d, r := recs[0], recs[1]
+	if d.Activity == nil || d.Activity.Query != "LoopX github" || strings.Contains(d.Activity.ArgsPreview, "sk-proj") || !strings.Contains(d.Activity.ArgsPreview, "LoopX github") {
+		t.Fatalf("decision activity %+v", d.Activity)
+	}
+	if r.TurnID != "T1" || len(r.Activity.ResultLinks) != 1 || r.Activity.ResultLinks[0].URL != "https://github.com/loopx/loopx" {
+		t.Fatalf("result %+v %+v", r, r.Activity)
+	}
+	if n, p, err := ledger.Verify(srv.cfg.AuditPath, srv.cfg.PublicKey); err != nil || p != nil || n != 2 {
+		t.Fatalf("verify n=%d p=%+v err=%v", n, p, err)
+	}
+	// Capture off: no previews on decisions.
+	off := startServer(t, nil)
+	hooks.Exchange(off.cfg.Socket, hooks.Request{Schema: hooks.SchemaDecide, Client: "codex", SessionID: "m2", CWD: "/p", Tool: tool, Input: in}, 2*time.Second)
+	recs, _ = ledger.Tail(off.cfg.AuditPath, 0)
+	if recs[0].Activity != nil {
+		t.Fatalf("preview with capture off: %+v", recs[0].Activity)
+	}
+}
