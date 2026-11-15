@@ -138,3 +138,14 @@ func TestSessionAndStop(t *testing.T) {
 		t.Fatal("Notification is not recorded")
 	}
 }
+
+// Codex apply_patch PostToolUse: the response text starts with the exit code
+// (seen in a live Codex 0.151 run on 2026-11-15).
+func TestCodexApplyPatchExitCode(t *testing.T) {
+	p := map[string]any{"hook_event_name": "PostToolUse", "tool_name": "apply_patch", "tool_use_id": "exec-d9c6f835",
+		"tool_response": "Exit code: 0\nWall time: 0.2 seconds\nOutput:\nSuccess. Updated the following files:\nA /Users/dev/proj/NOTES.md\n"}
+	a := Build("codex", "PostToolUse", p, []string{"/Users/dev/proj/NOTES.md"}, Options{})
+	if a.ExitCode == nil || *a.ExitCode != 0 || a.Success == nil || !*a.Success || len(a.Files) != 1 {
+		t.Fatalf("%+v", a)
+	}
+}

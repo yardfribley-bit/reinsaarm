@@ -120,6 +120,12 @@ echo '{"tool_name":"read_file","tool_input":{"file_path":"~/.ssh/id_ed25519"}}' 
 
 The full write-up, including receipt hashes and known console follow-ups, is in [docs/acceptance/2026-11-15-codex-0.151.md](docs/acceptance/2026-11-15-codex-0.151.md).
 
+## Session activity
+
+Besides deciding, the hooks can record what a session did: the user's prompt (a masked summary by default), each tool call with its decision **and** its result (exit code where the agent reports one, output summary, files touched, duration), and when the agent stopped. These are extra receipt types in the same signed chain, and their hooks never block. `install-hooks` adds them for every supported agent; the console's **会话** page shows one timeline per session. Codex 0.151 was checked with a real run; details, per-agent fields, and the full-prompt switch are in [docs/activity.md](docs/activity.md).
+
+![Console sessions page: a live Codex 0.151 session](docs/img/activity-codex-live.png)
+
 ## How it works
 
 ```mermaid
@@ -149,6 +155,7 @@ This is early **0.1.0**. Read these before you rely on it.
 - MCP tool descriptions are not part of the documented pre-tool payload. The poison rule runs only when a caller supplies `mcp_description` or `mcp_definition_hash`.
 - MCP servers have no shared argument schema. Path and host checks on MCP and unknown tools read common argument names (`path`, `file_path`, `url`, `endpoint`, …) only. Gemini's `mcp_<server>_<tool>` name is ambiguous when the server name has an underscore; the adapter prefers `mcp_context.server_name`.
 - WorkBuddy: an `ALLOW` is an empty answer, so WorkBuddy's own permission prompt and sandbox still apply; ReinsAARM only tightens. WorkBuddy treats any non-zero exit other than 2 (including a missing hook binary) as allow, and it snapshots hooks when a session starts. Other `PreToolUse` hooks in the same settings file run in parallel.
+- Activity summaries are masked by a pattern list (see [docs/activity.md](docs/activity.md)); an unusual secret format can still appear in a prompt or output summary. Codex does not report a shell exit code to `PostToolUse`, so Codex shell results show "returned", not success or failure.
 - Hosted tools that never reach the local hook (for example Codex `WebSearch`) are not seen.
 - The default network allowlist does not include private registries.
 - `identity.key` is mode `0600` and is not part of the source tree.
@@ -226,5 +233,7 @@ ReinsAARM 是给编程 Agent 用的本机运行时安全层。它在 Codex CLI�
 默认策略会拒绝读取凭据路径、拦住白名单以外的 `curl | sh`、拒绝受保护分支的 force-push，并把发往 `main` 的普通 push 变成一次性审批。本地控制台只监听 `127.0.0.1`。
 
 文件读写、网络请求和 MCP 调用会先归一成统一的动作模型，凭据路径和外发网络规则对所有工具都生效，MCP 还可以按 server / tool 名配规则。`reinsaarm policy test`（控制台策略页也有测试框）可以在不执行、不写回执的情况下看某条命令或调用在当前策略下的结果。
+
+钩子还会记录会话活动：用户提示（默认只存打码后的摘要）、每次工具调用的决定和执行结果（退出码、输出摘要、改动的文件、耗时）、Agent 何时结束。这些是同一条签名哈希链里的新回执类型，记录用的钩子永远不拦截。控制台的「会话」页按会话显示时间线，详见 [docs/activity.md](docs/activity.md)。
 
 目前只有 Codex 0.151 在 macOS 上做过实机验收。需求说明见 [docs/PRD-dev-agent.md](docs/PRD-dev-agent.md)，验收报告见 [docs/acceptance/2026-11-15-codex-0.151.md](docs/acceptance/2026-11-15-codex-0.151.md)。

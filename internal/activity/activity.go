@@ -110,6 +110,8 @@ func Build(client, hook string, payload map[string]any, paths []string, opt Opti
 	return a
 }
 
+var leadingExit = regexp.MustCompile(`^\s*(?:Exit code|Process exited with code)[:\s]+(-?\d+)`)
+
 var exitLine = regexp.MustCompile(`(?m)^\s*(?:Exit code|Process exited with code|exit code|exit status)[:\s]+(-?\d+)`)
 
 func toolResult(client, hook string, payload map[string]any, a *ledger.Activity) {
@@ -137,6 +139,15 @@ func toolResult(client, hook string, payload map[string]any, a *ledger.Activity)
 	switch r := resp.(type) {
 	case string:
 		a.Output = clipText(r, OutputLimit, a)
+		// Codex apply_patch results start with "Exit code: N"; Bash output
+		// from Codex carries no exit code.
+		if m := leadingExit.FindStringSubmatch(r); m != nil {
+			if n, err := strconv.Atoi(m[1]); err == nil {
+				a.ExitCode = &n
+				ok := n == 0
+				a.Success = &ok
+			}
+		}
 	case map[string]any:
 		if n, ok := firstNum(r, "exitCode", "exit_code", "returnCode", "return_code", "code"); ok {
 			code := int(n)
