@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/reinsaarm hook --client codebuddy",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

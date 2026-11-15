@@ -1,0 +1,90 @@
+apiVersion: reinsaarm/v1
+kind: AgentProfile
+metadata:
+  id: dev-coding-agent
+  owner: local-developer
+  env: dev
+spec:
+  mode: enforce
+  failMode: closed
+  unattended: false
+  remit: >
+    Implement and test code inside the current workspace. Run builds, tests,
+    and package managers. Do not read or write credential files, do not push
+    protected branches, and do not install software by piping a remote script
+    into a shell.
+  expectedBehaviours:
+    - read and write files inside the workspace
+    - run tests, builds, and package managers
+    - fetch documentation and packages from allowlisted hosts
+  knownRisks:
+    - reading ssh keys, cloud credentials, dotenv secrets, or keychains
+    - destructive shell outside the workspace
+    - git push or force-push to protected branches
+    - curl or wget piped into a shell
+    - egress to hosts that are not allowlisted
+    - mcp tool descriptions that carry hidden instructions
+  protectedBranches:
+    - main
+    - master
+    - production
+  workspace:
+    confineWrites: true
+  credentials:
+    denyPrefixes:
+      - ~/.ssh
+      - ~/.aws
+      - ~/.config/gcloud
+      - ~/.kube
+      - ~/.gnupg
+      - ~/.netrc
+      - ~/.docker
+      - ~/.config/gh
+      - ~/Library/Keychains
+      - ~/.local/share/keyrings
+    denyBasenames:
+      - .env
+      - .npmrc
+      - .pypirc
+      - .netrc
+      - credentials.json
+      - id_rsa
+      - id_ed25519
+      - id_ecdsa
+    denyBasenamePrefixes:
+      - ".env."
+    allowBasenames:
+      - .env.example
+      - .env.sample
+      - .env.template
+    allowPrefixes: []
+  network:
+    mode: strict
+    allow:
+      - github.com
+      - gitlab.com
+      - registry.npmjs.org
+      - pypi.org
+      - files.pythonhosted.org
+      - proxy.golang.org
+      - sum.golang.org
+      - repo.maven.apache.org
+      - crates.io
+      - static.crates.io
+      - index.crates.io
+    denyAlways:
+      - 169.254.169.254
+      - 169.254.170.2
+      - metadata.google.internal
+  ciPaths:
+    - .github/workflows
+    - .gitlab-ci.yml
+    - .circleci
+  judge:
+    enabled: false
+    endpoint: ""
+    model: reinsaarm-judge
+    timeoutMs: 4000
+    minConfidence: 0.7
+    promptVersion: judge-v1
+  mcpPins: {}

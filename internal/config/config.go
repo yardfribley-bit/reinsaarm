@@ -1,0 +1,64 @@
+package config
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+
+	"gopkg.in/yaml.v3"
+)
+
+// File is ~/.reinsaarm/config.yaml, or $REINSAARM_HOME/config.yaml.
+type File struct {
+	AgentID       string `yaml:"agent_id"`
+	ChainID       string `yaml:"chain_id"`
+	DeveloperHome string `yaml:"developer_home"`
+	Socket        string `yaml:"socket"`
+	Profile       string `yaml:"profile"`
+	AuditLog      string `yaml:"audit_log"`
+	Approvals     string `yaml:"approvals"`
+	IdentityKey   string `yaml:"identity_key"`
+	WebListen     string `yaml:"web_listen"`
+	EgressListen  string `yaml:"egress_listen"`
+	Sensor        bool   `yaml:"sensor"`
+}
+
+// Default builds paths under dir. developerHome is the home used to expand ~.
+func Default(dir, developerHome string) File {
+	return File{
+		AgentID:       "dev-coding-agent",
+		ChainID:       "local",
+		DeveloperHome: developerHome,
+		Socket:        filepath.Join(dir, "reinsaarm.sock"),
+		Profile:       filepath.Join(dir, "profile.yaml"),
+		AuditLog:      filepath.Join(dir, "audit.jsonl"),
+		Approvals:     filepath.Join(dir, "approvals.json"),
+		IdentityKey:   filepath.Join(dir, "identity.key"),
+		Sensor:        true,
+	}
+}
+
+// Load reads a config file.
+func Load(path string) (File, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return File{}, err
+	}
+	var f File
+	if err := yaml.Unmarshal(b, &f); err != nil {
+		return File{}, fmt.Errorf("config: %w", err)
+	}
+	return f, nil
+}
+
+// Save writes a config file.
+func Save(path string, f File) error {
+	raw, err := yaml.Marshal(f)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, raw, 0o600)
+}
+
+// Path is config.yaml inside a home directory.
+func Path(dir string) string { return filepath.Join(dir, "config.yaml") }
