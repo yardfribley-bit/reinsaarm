@@ -218,7 +218,7 @@ func buildTurns(items []TimelineItem, sessionEnded bool, cwd string, o replayOpt
 	for i, t := range turns {
 		t.Index = i + 1
 		its := stepsOf[t]
-		sort.SliceStable(its, func(a, b int) bool { return its[a].Seq < its[b].Seq })
+		sortStepsForDisplay(its)
 		last := i == len(turns)-1
 		fillTurn(t, its, last && !sessionEnded, cwd, o)
 		out = append(out, *t)
@@ -787,6 +787,39 @@ func exceptionName(s string) string {
 	return m[len(m)-1][1]
 }
 
+// sortStepsForDisplay puts session start before the prompt and tools before
+// stop, even when hook receipt sequence (or timestamps a few milliseconds
+// apart) arrive out of that narrative order. Audit seq numbers on each step
+// are left as written; this only changes display order.
+func sortStepsForDisplay(its []TimelineItem) {
+	sort.SliceStable(its, func(a, b int) bool {
+		ra, rb := stepRank(its[a].Type), stepRank(its[b].Type)
+		if ra != rb {
+			return ra < rb
+		}
+		ta, tb := parseTS(its[a].TS), parseTS(its[b].TS)
+		if !ta.IsZero() && !tb.IsZero() && !ta.Equal(tb) {
+			return ta.Before(tb)
+		}
+		return its[a].Seq < its[b].Seq
+	})
+}
+
+func stepRank(typ string) int {
+	switch typ {
+	case "start":
+		return 0
+	case "prompt":
+		return 1
+	case "stop":
+		return 3
+	case "end":
+		return 4
+	default:
+		return 2
+	}
+}
+
 // turnSource says who started the turn: automation (Codex turn_trigger
 // automation_*, or a <heartbeat> prompt), desktop, or cli.
 func turnSource(t *Turn, client string) (code, label, why string) {
@@ -816,11 +849,48 @@ func turnSource(t *Turn, client string) (code, label, why string) {
 	}
 	switch client {
 	case "workbuddy":
-		return "desktop", "桌面版", "WorkBuddy 桌面端钩子"
+		return workbuddySource(t)
 	case "claude-code", "gemini":
 		return "cli", "命令行", client + " 钩子"
 	}
 	return "unknown", "来源未记录", ""
+}
+
+// workbuddyDesktopCWD matches a WorkBuddy desktop task folder
+// ("…/WorkBuddy AI/2026-11-12-18-52-21") or the desktop app's virtual
+// project path ("…/reinsaarm/~:reinsaarm-workbuddy-accept").
+var workbuddyDesktopCWD = regexp.MustCompile(`(?i)(?:^|[/\\])WorkBuddy(?: AI)?[/\\]\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}(?:[/\\]|$)`)
+
+func isWorkBuddyDesktopCWD(p string) bool {
+	if p == "" {
+		return false
+	}
+	if strings.Contains(p, "/~:") || strings.Contains(p, "\\~:") || strings.HasPrefix(p, "~:") {
+		return true
+	}
+	return workbuddyDesktopCWD.MatchString(p)
+}
+
+// workbuddySource tells desktop from CLI when WorkBuddy sends no originator
+// (it currently does not). The previous default labelled every WorkBuddy
+// session "桌面版", including bundled-CLI `-p` runs.
+func workbuddySource(t *Turn) (code, label, why string) {
+	cwd := t.CWD
+	if cwd == "" {
+		for _, st := range t.Steps {
+			if h := headOf(st.TimelineItem); h != nil && h.CWD != "" {
+				cwd = h.CWD
+				break
+			}
+		}
+	}
+	if isWorkBuddyDesktopCWD(cwd) {
+		return "desktop", "桌面版", "工作区路径像桌面端任务目录"
+	}
+	if strings.HasPrefix(strings.ToLower(t.Model), "default-model") {
+		return "cli", "命令行", "占位模型 default-model（常见于 CLI -p）"
+	}
+	return "unknown", "来源未记录", "WorkBuddy 未记录来源，且路径与模型不足以判断"
 }
 
 var instrRe = regexp.MustCompile(`(?s)<instructions>\s*(.*?)(?:</instructions>|$)`)

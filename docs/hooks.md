@@ -65,7 +65,7 @@ Docs: <https://geminicli.com/docs/hooks/reference/> (page last-updated line: Apr
 
 ## CodeBuddy / WorkBuddy
 
-See [workbuddy.md](workbuddy.md). Short version: the CodeBuddy IDE settings hook is real, looks like Claude Code, and documents `modifiedInput`. WorkBuddy has its own adapter (`--client workbuddy`): it embeds the CodeBuddy Code CLI, whose PreToolUse result reads `updatedInput` (the adapter sends both), treats `continue: false` as "end the whole turn" (the adapter never sends it), and wraps deferred and MCP tools in `DeferExecuteTool` (unwrapped before policy).
+See [workbuddy.md](workbuddy.md). Short version: the CodeBuddy IDE settings hook is real, looks like Claude Code, and documents `modifiedInput`. WorkBuddy has its own adapter (`--client workbuddy`): it embeds the CodeBuddy Code CLI, whose PreToolUse result reads `updatedInput` (the adapter sends both), treats `continue: false` as "end the whole turn" (the adapter never sends it), and wraps deferred and MCP tools in `DeferExecuteTool` (unwrapped before policy). Tencent docs say hooks are snapshotted at session start and that an external edit needs `/hooks` review; a live WorkBuddy AI 5.9.4 desktop session on 2026-11-15 re-read a user-level `settings.json` change within about four minutes, with no new task, no restart, and no review seen. A new task is still the reliable way to be sure hooks are loaded. `/hooks` review may still appear.
 
 ## Activity events
 

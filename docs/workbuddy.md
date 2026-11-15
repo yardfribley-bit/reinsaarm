@@ -56,8 +56,14 @@ Read from `/Applications/WorkBuddy AI.app/Contents/Resources/app.asar.unpacked/c
   message from stderr). Any other non-zero exit is **allowed** and stderr
   becomes a system message. So a missing hook binary (127) fails open, and the
   sidecar-down path uses exit 2 with a deny JSON and a stderr reason.
-- **Snapshot.** Hooks are read when a session starts; the Tencent docs say an
-  external edit needs review in `/hooks` before it applies.
+- **Snapshot / reload.** Tencent docs say hooks are read when a session starts,
+  and that an external edit needs review in `/hooks` before it applies. Live
+  observation on 2026-11-15 (北京时间): user-level `settings.json` changes were
+  picked up by an already-running WorkBuddy AI 5.9.4 desktop session within
+  about four minutes, with no new task, no restart, and no `/hooks` review
+  seen. A new task is still the reliable way to be sure the new hooks are
+  loaded. `/hooks` review may still appear; that run did not prove it never
+  does.
 
 Tool names seen in 276 WorkBuddy / WorkBuddy AI session transcripts on the
 same Mac: `Bash` (`command`, `description`, `run_in_background`,
@@ -96,8 +102,9 @@ reinsaarm policy test --agent workbuddy --json '{"tool_name":"DeferExecuteTool",
 
 `install-hooks` backs the old file up to `settings.json.bak.reinsaarm-<timestamp>`,
 keeps the file mode (WorkBuddy's user file is `0600`), keeps every other hook
-and setting, and does not duplicate itself. Start a new WorkBuddy task after
-installing.
+and setting, and does not duplicate itself. A running session often re-reads
+hooks on its own; start a new WorkBuddy task after installing if you need to
+be sure they are loaded. `/hooks` review may still appear.
 
 ## Verified on macOS, 2026-11-15
 
@@ -119,15 +126,18 @@ already present in `~/.workbuddy/settings.json`.
 
 ## Not verified
 
-- **A WorkBuddy session calling the hook.** The bundled CLI in `-p` mode
-  returned `Authentication required. Please use /login`; it does not share the
-  desktop app's sign-in. The desktop app was not driven. To run it: install the
-  hook into a scratch project, open that folder as a new WorkBuddy task, ask
-  for `ls`, `curl … | sh`, and a read of a fake `id_rsa`, then
-  `reinsaarm audit tail`.
-- Whether the desktop app requires a `/hooks` review before a project file's
-  hooks apply, and whether the hook fires for both `DeferExecuteTool` and its
-  inner tool.
+- The controlled scratch-project acceptance (`ls`, `curl … | sh`, a read of a
+  fake `id_rsa`) has not been completed in a live WorkBuddy task. The bundled
+  CLI in `-p` mode returned `Authentication required. Please use /login`; it
+  does not share the desktop app's sign-in. User-level hooks did fire in live
+  desktop sessions and in a `-p` session (the latter stopped at the login
+  prompt). Whether the hook fires for both `DeferExecuteTool` and its inner
+  tool is only partly observed (an ImageGen call was recorded both wrapped and
+  unwrapped).
+- Whether `/hooks` review appears in other situations (for example a project
+  file's hooks, or a future WorkBuddy build). A running desktop session was
+  seen to pick up a user-level `settings.json` edit without a review, but that
+  does not prove a review never appears.
 - `MODIFY` in a live session (which of the two rewrite fields wins).
 - What a hook **timeout** does. The code path for "other exit" allows, so the
   safe assumption is fail-open.
@@ -162,4 +172,4 @@ not known, so it was left as is.
 
 ## 中文摘要
 
-WorkBuddy **有**工具执行前的钩子：`settings.json` 里的 `hooks.PreToolUse` 命令钩子，格式和 Claude Code 一样。它内置的是 CodeBuddy Code CLI，所以机制和 CodeBuddy 同源，但决定的解析有三处不同：改写读 `updatedInput`；`continue:false` 会中止整轮对话；MCP 等工具通过 `DeferExecuteTool` 包一层调用。因此单独做了 `workbuddy` 适配器：放行时不输出（保留 WorkBuddy 自己的确认和沙箱），拒绝不带 `continue`，需审批用 `ask`，先拆开 `DeferExecuteTool` 再判断，sidecar 不可用时退出码 2（WorkBuddy 只对 2 阻止，其他非零会放行）。用户配置在 `~/.workbuddy-ai`（WorkBuddy AI）或 `~/.workbuddy`（WorkBuddy），项目配置在 `<项目>/.codebuddy/settings.json`。在 Mac 上用 WorkBuddy 格式的输入实测了钩子、回执和失败阻断；真实 WorkBuddy 会话没跑，因为自带 CLI 需要单独 `/login`。
+WorkBuddy **有**工具执行前的钩子：`settings.json` 里的 `hooks.PreToolUse` 命令钩子，格式和 Claude Code 一样。它内置的是 CodeBuddy Code CLI，所以机制和 CodeBuddy 同源，但决定的解析有三处不同：改写读 `updatedInput`；`continue:false` 会中止整轮对话；MCP 等工具通过 `DeferExecuteTool` 包一层调用。因此单独做了 `workbuddy` 适配器：放行时不输出（保留 WorkBuddy 自己的确认和沙箱），拒绝不带 `continue`，需审批用 `ask`，先拆开 `DeferExecuteTool` 再判断，sidecar 不可用时退出码 2（WorkBuddy 只对 2 阻止，其他非零会放行）。用户配置在 `~/.workbuddy-ai`（WorkBuddy AI）或 `~/.workbuddy`（WorkBuddy），项目配置在 `<项目>/.codebuddy/settings.json`。在 Mac 上用 WorkBuddy 格式的输入实测了钩子、回执和失败阻断；后来在真实的 WorkBuddy AI 桌面会话和 CLI `-p` 会话里也看到了钩子回调。腾讯文档写钩子在会话开始时读取、外部修改要在 `/hooks` 审查后才生效；2026-11-15 的一次观察里，已在跑的桌面会话大约四分钟内就读到了用户级 `settings.json` 的改动，没有新开任务、没有重启，也没看到 `/hooks` 审查。要确保钩子已加载，仍宜新开一个任务；不能据此认定审查绝不会出现。受控验收（ls、curl|sh、读假密钥）还没有在真实任务里跑完。CLI `-p` 不共享桌面登录，会停在 `/login`。

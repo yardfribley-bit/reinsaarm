@@ -105,7 +105,7 @@ func planFile(client, path, bin, stateHome, socket string) ([]Plan, error) {
 	raw = append(raw, '\n')
 	note := "hook command reads stdin and writes the CLI's decision JSON"
 	if client == "workbuddy" {
-		note = "WorkBuddy snapshots hooks at session start: start a new task (or restart WorkBuddy) and review the hook in /hooks if it asks. Other PreToolUse hooks in this file still run in parallel."
+		note = "WorkBuddy often re-reads hooks in a running session; a new task is still the reliable way to be sure they are loaded, and /hooks review may still appear. Other PreToolUse hooks in this file still run in parallel."
 	}
 	plans := []Plan{{Path: path, Payload: raw, Note: note}}
 	if client == "codex" {
