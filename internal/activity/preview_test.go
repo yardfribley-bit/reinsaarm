@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
 )
 
 func TestArgsPreviewMasksAndQueries(t *testing.T) {
@@ -112,4 +114,94 @@ func TestReadTranscript(t *testing.T) {
 	if a := Build("codex", "Stop", map[string]any{"transcript_path": p, "turn_id": "T1"}, nil, Options{Home: home}); a.Trigger != "" {
 		t.Fatal("transcript read while off")
 	}
+}
+
+const thinkingRollout = `{"timestamp":"2026-11-15T13:26:44.952Z","type":"session_meta","payload":{"id":"s1","originator":"Codex Desktop","source":"vscode"}}
+{"timestamp":"2026-11-15T13:26:44.952Z","type":"event_msg","payload":{"type":"task_started","turn_id":"T0","turn_attribution":{"turn_id":"T0","turn_trigger":"composer"}}}
+{"timestamp":"2026-11-15T13:26:50.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"old turn thought"}}
+{"timestamp":"2026-11-15T13:28:06.723Z","type":"event_msg","payload":{"type":"task_started","turn_id":"T1","turn_attribution":{"turn_id":"T1","turn_trigger":"composer"}}}
+{"timestamp":"2026-11-15T13:28:10.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"I'll check"}}
+{"timestamp":"2026-11-15T13:28:11.000Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"I'll check the tests."}}
+{"timestamp":"2026-11-15T13:28:12.000Z","type":"event_msg","payload":{"type":"reasoning_content_delta","delta":"do not stitch this delta"}}
+{"timestamp":"2026-11-15T13:28:20.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"I'll check the tests."}],"content":[{"type":"reasoning_text","text":"The tests live under internal/console.\nkey=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx123456"}],"encrypted_content":"ENC_BLOB_SHOULD_NOT_APPEAR"}}
+{"timestamp":"2026-11-15T13:28:37.139Z","type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"先看测试"}]}}
+`
+
+func TestReadCodexThinking(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "sessions")
+	os.MkdirAll(dir, 0o700)
+	p := filepath.Join(dir, "rollout-think.jsonl")
+	os.WriteFile(p, []byte(thinkingRollout), 0o600)
+	tr := ReadTranscript(p, home, "T1", true)
+	if len(tr.Commentary) != 1 || tr.Commentary[0].Text != "先看测试" {
+		t.Fatalf("commentary %+v", tr.Commentary)
+	}
+	blob, _ := jsonThinking(tr.Thinking)
+	if strings.Contains(blob, "ENC_BLOB") || strings.Contains(blob, "sk-proj") || strings.Contains(blob, "do not stitch") || strings.Contains(blob, "old turn") {
+		t.Fatalf("leaked or wrong turn: %s", blob)
+	}
+	if len(tr.Thinking) != 2 {
+		t.Fatalf("thinking %+v", tr.Thinking)
+	}
+	if tr.Thinking[0].Kind != ThinkSummary || tr.Thinking[0].Text != "I'll check the tests." {
+		t.Fatalf("summary %+v", tr.Thinking[0])
+	}
+	if tr.Thinking[1].Kind != ThinkRaw || !strings.Contains(tr.Thinking[1].Text, "internal/console") || !strings.Contains(tr.Thinking[1].Text, "[REDACTED]") {
+		t.Fatalf("raw %+v", tr.Thinking[1])
+	}
+	a := Build("codex", "PostToolUse", map[string]any{"transcript_path": p, "turn_id": "T1", "tool_response": "ok"}, nil, Options{Transcript: true, Home: home})
+	if len(a.Thinking) != 2 || len(a.Commentary) != 0 {
+		t.Fatalf("post thinking %+v commentary %+v", a.Thinking, a.Commentary)
+	}
+	stop := Build("codex", "Stop", map[string]any{"transcript_path": p, "turn_id": "T1", "last_assistant_message": "done"}, nil, Options{Transcript: true, Home: home})
+	if len(stop.Thinking) != 2 || len(stop.Commentary) != 1 {
+		t.Fatalf("stop %+v", stop)
+	}
+	if off := Build("codex", "Stop", map[string]any{"transcript_path": p, "turn_id": "T1"}, nil, Options{Home: home}); len(off.Thinking) != 0 {
+		t.Fatal("thinking read while transcript capture is off")
+	}
+}
+
+const claudeTranscript = `{"type":"user","timestamp":"2026-11-15T13:00:00Z","message":{"role":"user","content":"earlier question"}}
+{"type":"assistant","timestamp":"2026-11-15T13:00:02Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"old thought"},{"type":"text","text":"old answer"}]}}
+{"type":"user","timestamp":"2026-11-15T13:01:00Z","message":{"role":"user","content":"look at the tests"}}
+{"type":"assistant","timestamp":"2026-11-15T13:01:03Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"I should read turns_test.go. token=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx123456"},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"turns_test.go"}}]}}
+{"type":"user","timestamp":"2026-11-15T13:01:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"package console"}]}}
+{"type":"assistant","timestamp":"2026-11-15T13:01:08Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"The test builds turns from receipts."},{"type":"redacted_thinking","data":"REDACTED_BLOB_SHOULD_NOT_APPEAR"},{"type":"text","text":"done"}]}}
+`
+
+func TestReadClaudeThinking(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "projects")
+	os.MkdirAll(dir, 0o700)
+	p := filepath.Join(dir, "session.jsonl")
+	os.WriteFile(p, []byte(claudeTranscript), 0o600)
+	tr := ReadTranscript(p, home, "", true)
+	blob, _ := jsonThinking(tr.Thinking)
+	if strings.Contains(blob, "old thought") || strings.Contains(blob, "REDACTED_BLOB") || strings.Contains(blob, "sk-proj") {
+		t.Fatalf("leaked: %s", blob)
+	}
+	if len(tr.Thinking) != 2 || tr.Thinking[0].Kind != ThinkBlock || !strings.Contains(tr.Thinking[0].Text, "turns_test.go") {
+		t.Fatalf("thinking %+v", tr.Thinking)
+	}
+	if !strings.Contains(tr.Thinking[1].Text, "builds turns") {
+		t.Fatalf("second %+v", tr.Thinking[1])
+	}
+	// WorkBuddy and Claude Code share this transcript shape.
+	a := Build("workbuddy", "Stop", map[string]any{"transcript_path": p, "last_assistant_message": "done"}, nil, Options{Transcript: true, Home: home})
+	if len(a.Thinking) != 2 {
+		t.Fatalf("workbuddy stop %+v", a.Thinking)
+	}
+}
+
+func jsonThinking(notes []ledger.Note) (string, error) {
+	var b strings.Builder
+	for _, n := range notes {
+		b.WriteString(n.Kind)
+		b.WriteString(" ")
+		b.WriteString(n.Text)
+		b.WriteString("\n")
+	}
+	return b.String(), nil
 }

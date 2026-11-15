@@ -87,6 +87,11 @@ type Server struct {
 	// still pair receipts by tool_use_id.
 	calls     map[string]callRef
 	callOrder []string
+	// thinkSeen remembers thinking notes already written for a session turn,
+	// so a later tool result or Stop does not store the same text again.
+	// Lost on restart; the console also drops duplicates.
+	thinkSeen  map[string]map[string]struct{}
+	thinkOrder []string
 
 	led *ledger.Ledger
 }
@@ -120,11 +125,12 @@ func New(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		cfg:      cfg,
-		led:      led,
-		sessions: map[string]*sessionState{},
-		seenFD:   map[string]bool{},
-		calls:    map[string]callRef{},
+		cfg:       cfg,
+		led:       led,
+		sessions:  map[string]*sessionState{},
+		seenFD:    map[string]bool{},
+		calls:     map[string]callRef{},
+		thinkSeen: map[string]map[string]struct{}{},
 	}
 	if err := s.reload(true); err != nil {
 		return nil, err

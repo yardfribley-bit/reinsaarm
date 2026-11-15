@@ -87,6 +87,14 @@ func shortID(id string) string {
 	return id
 }
 
+func clock(ts string, loc *time.Location) string {
+	s := localTS(ts, loc)
+	if len(s) >= 11 && s[10] == ' ' {
+		return s[11:]
+	}
+	return s
+}
+
 func localTS(ts string, loc *time.Location) string {
 	t := parseTS(ts)
 	if t.IsZero() {
@@ -164,6 +172,18 @@ func reportMarkdown(sum *SessionSummary, t Turn, total int, chain ChainCheck, lo
 	}
 	p("## 步骤\n\n| 时间 | # | 类型 | 内容 | 判定 | 命中规则 | 耗时 | 结果 |\n|---|---|---|---|---|---|---|---|\n")
 	for _, st := range t.Steps {
+		if st.Type == "think" {
+			what := st.Thinking
+			if rs := []rune(what); len(rs) > 80 {
+				what = string(rs[:80]) + "…"
+			}
+			src := "原文"
+			if st.ThinkKind == "summary" {
+				src = "推理摘要"
+			}
+			p("| %s | | 思考过程 | %s | | | | %s |\n", clock(st.TS, loc), mdCell(what), src)
+			continue
+		}
 		if st.Type != "tool" {
 			continue
 		}
@@ -213,6 +233,21 @@ func reportMarkdown(sum *SessionSummary, t Turn, total int, chain ChainCheck, lo
 			p("之后出现 %d 次敏感操作。\n\n", t.SensitiveAfter)
 		}
 	}
+	wroteThink := false
+	for _, st := range t.Steps {
+		if st.Type != "think" {
+			continue
+		}
+		if !wroteThink {
+			p("## 思考过程（来自会话记录，已打码）\n\n")
+			wroteThink = true
+		}
+		src := "原文"
+		if st.ThinkKind == "summary" {
+			src = "推理摘要（不是从密文还原的思维链）"
+		}
+		p("### %s · %s\n\n%s\n\n", clock(st.TS, loc), src, st.Thinking)
+	}
 	if len(t.Commentary) > 0 {
 		p("## Agent 过程说明（来自 Agent 自己的会话记录）\n\n")
 		for _, n := range t.Commentary {
@@ -233,6 +268,20 @@ func reportMarkdown(sum *SessionSummary, t Turn, total int, chain ChainCheck, lo
 	}
 	p("\n文本均已打码并截断；报告由 ReinsAARM 控制台生成。\n")
 	return b.String()
+}
+
+// thinkingMissing says why this client has no thinking text on the turn.
+func thinkingMissing(client string) string {
+	switch client {
+	case "codex":
+		return "这一轮会话记录里没有明文思考（推理摘要或原文）。Codex 的 encrypted_content 不会被解开"
+	case "workbuddy", "claude-code", "codebuddy":
+		return "这一轮会话记录里没有明文 thinking 块。redacted_thinking 只有密文，不会显示"
+	case "gemini":
+		return "Gemini CLI 的钩子没有思考字段，也没有可解析的会话记录，思考过程不会出现"
+	default:
+		return "模型思考过程不可见"
+	}
 }
 
 func joinSeqs(seqs []uint64) string {
@@ -258,11 +307,27 @@ func coverageNotes(client string, t Turn) []string {
 		out = append(out, "Codex code mode 的 exec 外层 JS 代码不会出现在时间线里（内部每次工具调用会单独记录）")
 		out = append(out, "生图等内置工具尚未验证是否触发钩子，没出现在时间线里不代表没调用")
 	}
-	think := "模型思考过程不可见"
-	if t.ThinkMS >= 1000 {
-		think += "（本轮含 " + durText(t.ThinkMS) + " 无钩子事件的间隙）"
+	nThink := 0
+	summaryOnly := true
+	for _, st := range t.Steps {
+		if st.Type != "think" {
+			continue
+		}
+		nThink++
+		if st.ThinkKind != "summary" {
+			summaryOnly = false
+		}
 	}
-	out = append(out, think)
+	switch {
+	case nThink > 0 && summaryOnly:
+		out = append(out, "时间线上的思考过程是 Codex 写入会话记录的推理摘要。原始思维链若只有密文，不会被解开或补写")
+	case nThink == 0:
+		think := thinkingMissing(client)
+		if t.ThinkMS >= 1000 {
+			think += "（本轮含 " + durText(t.ThinkMS) + " 无钩子事件的间隙）"
+		}
+		out = append(out, think)
+	}
 	if !t.HasPreviews && t.Counts.Tools > 0 {
 		out = append(out, "本轮回执写于参数采集上线之前，没有记录工具参数")
 	}

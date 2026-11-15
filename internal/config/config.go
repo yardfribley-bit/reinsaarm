@@ -41,8 +41,9 @@ type Capture struct {
 	FinalMessage  *int  `yaml:"final_message,omitempty"`
 	ResultLinks   *bool `yaml:"result_links,omitempty"`
 	// Transcript lets the sidecar read the agent's own transcript file
-	// (Codex rollout .jsonl under the developer home) for the turn trigger,
-	// the front end, and progress messages.
+	// (Codex rollout .jsonl, or a Claude-style session file, under the
+	// developer home) for the turn trigger, the front end, progress
+	// messages, and plaintext thinking.
 	Transcript *bool `yaml:"transcript,omitempty"`
 }
 

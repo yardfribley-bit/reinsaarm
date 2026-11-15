@@ -131,6 +131,93 @@ func TestTurnGroupingAndRisks(t *testing.T) {
 	}
 }
 
+func TestThinkingStepsInOrder(t *testing.T) {
+	c := &chain{t: t}
+	c.add(ledger.Receipt{TurnID: "T1", EventType: "prompt.submit", TS: ts(1), Activity: &ledger.Activity{Prompt: "看一下测试"}})
+	// The same summary is stored on the tool result and again on Stop.
+	note := ledger.Note{TS: ts(20), Text: "先看 turns_test。token=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx123456", Kind: "summary"}
+	raw := ledger.Note{TS: ts(21), Text: "测试在 internal/console。", Kind: "raw"}
+	pre := c.add(ledger.Receipt{TurnID: "T1", ToolUseID: "r1", Tool: "Read", Kind: "file_read",
+		Decision: "ALLOW", EnforcedDecision: "ALLOW", RuleIDs: []string{"R-DEFAULT-ALLOW"}, EventType: "action.decision", TS: ts(40),
+		Resources: &ledger.Resources{Paths: []string{"/Users/dev/proj/turns_test.go"}}})
+	c.add(ledger.Receipt{TurnID: "T1", ToolUseID: "r1", RefSeq: pre, Tool: "Read", Kind: "file_read", EventType: "tool.result", TS: ts(41),
+		Activity: &ledger.Activity{Thinking: []ledger.Note{note, raw}}})
+	c.add(ledger.Receipt{TurnID: "T1", EventType: "agent.stop", TS: ts(50), Activity: &ledger.Activity{Message: "看完了", Thinking: []ledger.Note{note}}})
+	turns := buildTurns(timeline(c.recs, "codex:s1"), false, "/Users/dev/proj", opts())
+	if len(turns) != 1 {
+		t.Fatalf("turns %d", len(turns))
+	}
+	var kinds []string
+	var texts []string
+	for _, s := range turns[0].Steps {
+		if s.Type != "think" {
+			continue
+		}
+		kinds = append(kinds, s.ThinkKind)
+		texts = append(texts, s.Thinking)
+		if s.Label != "思考过程" {
+			t.Fatalf("label %s", s.Label)
+		}
+	}
+	if len(kinds) != 2 || kinds[0] != "summary" || kinds[1] != "raw" {
+		t.Fatalf("kinds %+v texts %+v", kinds, texts)
+	}
+	if strings.Contains(texts[0], "sk-proj") || !strings.Contains(texts[0], "先看") {
+		t.Fatalf("redaction %q", texts[0])
+	}
+	// Prompt, then thinking, then the tool, then stop.
+	var order []string
+	for _, s := range turns[0].Steps {
+		if s.Type == "prompt" || s.Type == "think" || s.Type == "tool" || s.Type == "stop" {
+			order = append(order, s.Type)
+		}
+	}
+	if strings.Join(order, " ") != "prompt think think tool stop" {
+		t.Fatalf("order %v", order)
+	}
+	if len(turns[0].Gaps) == 0 || !turns[0].Gaps[0].Recorded || turns[0].Gaps[0].Kind != "think" {
+		t.Fatalf("gaps %+v", turns[0].Gaps)
+	}
+	cov := strings.Join(turns[0].Coverage, "\n")
+	if strings.Contains(cov, "没有明文思考") {
+		t.Fatalf("coverage hid recorded thinking: %s", cov)
+	}
+	sumOnly := &chain{t: t}
+	sumOnly.add(ledger.Receipt{TurnID: "S", EventType: "prompt.submit", TS: ts(1), Activity: &ledger.Activity{Prompt: "hi"}})
+	sumOnly.add(ledger.Receipt{TurnID: "S", EventType: "agent.stop", TS: ts(5), Activity: &ledger.Activity{
+		Message: "ok", Thinking: []ledger.Note{{TS: ts(3), Text: "只看到摘要", Kind: "summary"}}}})
+	scov := strings.Join(buildTurns(timeline(sumOnly.recs, "codex:s1"), true, "", opts())[0].Coverage, "\n")
+	if !strings.Contains(scov, "推理摘要") {
+		t.Fatalf("summary coverage %s", scov)
+	}
+	// A turn with no recorded thinking says so, and does not invent text.
+	empty := &chain{t: t}
+	empty.add(ledger.Receipt{Client: "gemini", SessionID: "g", EventType: "prompt.submit", TS: ts(1), Activity: &ledger.Activity{Prompt: "hi"}})
+	empty.add(ledger.Receipt{Client: "gemini", SessionID: "g", EventType: "agent.stop", TS: ts(30), Activity: &ledger.Activity{Message: "ok"}})
+	g := buildTurns(timeline(empty.recs, "gemini:g"), true, "", opts())
+	if strings.Join(g[0].Coverage, "\n") == "" || !strings.Contains(strings.Join(g[0].Coverage, "\n"), "Gemini") {
+		t.Fatalf("gemini coverage %+v", g[0].Coverage)
+	}
+	for _, s := range g[0].Steps {
+		if s.Type == "think" {
+			t.Fatal("invented thinking")
+		}
+	}
+}
+
+func TestConsoleThinkingMarkup(t *testing.T) {
+	b, err := os.ReadFile("static/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	for _, want := range []string{"思考过程", "data-think", "think_kind", "推理摘要"} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("console markup missing %s", want)
+		}
+	}
+}
+
 func TestTriggerAutomationAndStatus(t *testing.T) {
 	c := &chain{t: t}
 	c.add(ledger.Receipt{TurnID: "A", EventType: "prompt.submit", TS: ts(0), Activity: &ledger.Activity{Prompt: "x"}})

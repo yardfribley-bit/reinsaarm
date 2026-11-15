@@ -119,6 +119,9 @@
   .chip.status.live { color: var(--allow); background: var(--allow-bg); }
   .chip.status.warnst { color: var(--step); background: var(--step-bg); }
   .chip.kind { color: #9AA8BC; background: #151A22; font-weight: 600; letter-spacing: 0.04em; }
+  .chip.think { color: #C4B5E0; background: #241C33; font-weight: 600; letter-spacing: 0.04em; }
+  .step.think-step { border-style: dashed; border-color: #3A3050; }
+  .think-src { font-size: 12px; color: var(--muted); margin: 0 0 8px; }
   .stats-line { display: flex; gap: 16px; margin: 0 0 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
   .stats-line b { color: var(--text); font-weight: 600; }
   .list-head, .srow { display: grid; grid-template-columns: 148px minmax(0,1fr) 56px 100px 86px; gap: 16px; align-items: start; }
@@ -185,6 +188,7 @@
   .gantt-track { position: relative; height: 36px; background: #14181D; border-radius: 5px; }
   .gantt-bar { position: absolute; top: 6px; height: 24px; border-radius: 4px; font-size: 11px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap; color: #C5CAD3; line-height: 24px; min-width: 3px; }
   .gantt-bar.think { background: #1C2128; color: #7A818C; border: 1px dashed #2A3038; }
+  .gantt-bar.thought { background: #241C33; color: #C4B5E0; border: 1px solid #3A3050; }
   .gantt-bar.mcp { background: #1A2838; color: #9EC0EA; border: 1px solid #2A3F55; }
   .gantt-bar.read { background: var(--step-bg); color: var(--step); border: 1px solid #5A4A18; z-index: 2; }
   .gantt-bar.tool { background: #1A2420; color: #7BC49A; border: 1px solid #243830; }
@@ -455,6 +459,7 @@ let sessRange = "today";
 var turnSel = turnSel || 0; // 1-based turn index from the hash; 0 = latest
 var drawerSeq = drawerSeq || 0; // step shown in the side drawer
 let openSteps = {};       // seq -> true/false, user toggles
+let openThink = {};       // thinking step key -> expanded
 let finalOpen = false;
 let chain = null;         // {ok, count}
 let chainAt = 0;
@@ -743,8 +748,21 @@ function noteHTML(n) {
     <span class="chip kind">说明</span><span>Agent：「${esc(n.text)}」</span><span></span><span></span></div></div>`;
 }
 function gapHTML(g, first, t) {
-  if (first && t.prompt) return `<div class="gap-note">从提示提交到下一步，中间 ${esc(durSpaced(g.ms))}没有钩子事件。这段是模型思考过程，当前不可见——不要把空白当成「什么都没做」。</div>`;
+  if (g.recorded) return "";
+  if (first && t.prompt) return `<div class="gap-note">从提示提交到下一步，中间 ${esc(durSpaced(g.ms))}没有钩子事件。这段没有记录到思考原文——不要把空白当成「什么都没做」。</div>`;
   return `<div class="gap-note">${esc(hhmmss(g.from))} – ${esc(hhmmss(g.to))} · 思考 ${esc(dur(g.ms))} · 钩子不可见</div>`;
+}
+function thinkHTML(st, i) {
+  const key = (st.ts || "") + "#" + i + "#" + (st.seq || 0);
+  const open = !!openThink[key];
+  const text = st.thinking || "";
+  const preview = text.length > 160 ? text.slice(0, 160) + "…" : text;
+  const hint = st.think_kind === "summary"
+    ? "推理摘要。这是客户端写入会话记录的文字，不是从密文还原的思维链。"
+    : "会话记录中的思考原文，已打码。";
+  return `<div class="step think-step${open ? " open" : ""}"><div class="step-h" data-think="${esc(key)}"><span class="caret">${open ? "▼" : "▶"}</span><span class="step-time mono">${esc(hhmmss(st.ts))}</span>
+    <span class="chip think">思考</span><span class="desc">${open ? "思考过程" : esc(preview)}</span><span></span><span class="muted" style="font-size:12px">${open ? "收起" : "展开"}</span></div>
+    ${open ? `<div class="step-body"><div class="think-src">${esc(hint)}</div><pre class="code">${esc(text)}</pre>${st.think_cut ? `<div class="muted" style="margin-top:6px">已截断到 ${esc(text.length)} 字</div>` : ""}</div>` : ""}</div>`;
 }
 function stepsHTML(t) {
   const out = [];
@@ -752,8 +770,10 @@ function stepsHTML(t) {
   let ni = 0;
   const gaps = (t.gaps || []).filter(g => g.kind === "think" && g.before_seq);
   let gi = 0;
+  let ti = 0;
   for (const st of t.steps || []) {
     if (st.type === "prompt" || st.type === "stop") continue;
+    if (st.type === "think") { out.push(thinkHTML(st, ti++)); continue; }
     const g = gaps.find(x => x.before_seq === st.seq);
     if (g) { out.push(gapHTML(g, gi === 0, t)); gi++; }
     while (ni < notes.length && notes[ni].ts && notes[ni].ts <= st.ts) out.push(noteHTML(notes[ni++]));
@@ -865,7 +885,12 @@ function ganttHTML(t) {
   const bars = [], ticks = [], legend = new Set();
   for (const g of t.gaps || []) {
     const l = pos(g.from), w = Math.max(0.3, pos(g.to) - l);
-    if (g.kind === "think") { bars.push(`<div class="gantt-bar think" style="left:${l}%;width:${w}%">${w > 18 ? `思考 ${esc(dur(g.ms))} · 钩子不可见` : ""}</div>`); legend.add("think"); }
+    if (g.kind === "think") {
+      const cls = g.recorded ? "thought" : "think";
+      const label = g.recorded ? "思考过程" : `思考 ${esc(dur(g.ms))} · 钩子不可见`;
+      bars.push(`<div class="gantt-bar ${cls}" style="left:${l}%;width:${w}%">${w > 18 ? label : ""}</div>`);
+      legend.add(cls);
+    }
     else { bars.push(`<div class="gantt-bar compose" style="left:${l}%;width:${w}%">${w > 4 ? "作答" : ""}</div>`); legend.add("compose"); }
   }
   const short = {web: "搜", mcp: "MCP", read: "读", write: "写", shell: "命令", other: "其他"};
@@ -896,8 +921,8 @@ function ganttHTML(t) {
   const kept = [];
   for (const s of scale) { if (!kept.length || s.x - kept[kept.length - 1].x > 9 || s.x === 100) { if (s.x === 100 && kept.length && 100 - kept[kept.length - 1].x < 9) kept.pop(); kept.push(s); } }
   const scaleHTML = kept.map((s, i) => `<span style="${i === kept.length - 1 ? "right:0" : i === 0 ? "left:0" : `left:${s.x}%;transform:translateX(-50%)`}" class="mono">${esc(s.s)}</span>`).join("");
-  const L = {think: ["#1C2128", "1px dashed #2A3038", "模型思考（未覆盖）"], mcp: ["#1A2838", "1px solid #2A3F55", "MCP 网页搜索 / 查找"], read: ["#2E250C", "1px solid #5A4A18", "项目外路径"], tool: ["#1A2420", "1px solid #243830", "命令 / 文件"], failbar: ["#3A1A1C", "1px solid #6A3034", "失败 / 拒绝"], compose: ["#1A1D23", "1px solid #2A3038", "组织最终回答"]};
-  const legendHTML = ["think", "mcp", "tool", "read", "failbar", "compose"].filter(k => legend.has(k)).map(k => `<span><i style="background:${L[k][0]};border:${L[k][1]}"></i>${L[k][2]}</span>`).join("");
+  const L = {think: ["#1C2128", "1px dashed #2A3038", "模型思考（未记录原文）"], thought: ["#241C33", "1px solid #3A3050", "思考过程"], mcp: ["#1A2838", "1px solid #2A3F55", "MCP 网页搜索 / 查找"], read: ["#2E250C", "1px solid #5A4A18", "项目外路径"], tool: ["#1A2420", "1px solid #243830", "命令 / 文件"], failbar: ["#3A1A1C", "1px solid #6A3034", "失败 / 拒绝"], compose: ["#1A1D23", "1px solid #2A3038", "组织最终回答"]};
+  const legendHTML = ["thought", "think", "mcp", "tool", "read", "failbar", "compose"].filter(k => legend.has(k)).map(k => `<span><i style="background:${L[k][0]};border:${L[k][1]}"></i>${L[k][2]}</span>`).join("");
   return `<div class="gantt-wrap"><div class="gantt-title">时间轴 · ${esc(dur(span))}（${Math.round(span / 1000)} 秒）</div>
     <div class="gantt"><div class="gantt-scale">${scaleHTML}</div><div class="gantt-track">${bars.join("")}</div>
     <div class="gantt-ticks">${merged.map(tk => `<span style="left:${tk.x}%">${esc(tk.label)}</span>`).join("")}</div>
@@ -959,7 +984,8 @@ function drawerStepHTML(t) {
 function liveHTML(t) {
   const lv = t.live;
   const verb = lv ? ({web: "正在搜索网页…", mcp: "正在调用 MCP…", read: "正在读取…", write: "正在写入…", shell: "正在执行命令…"}[lv.category] || "正在调用工具…") : "Agent 正在思考…";
-  const since = lv ? `${esc(lv.tool_name || (lv.decision || {}).tool || "")} · 已开始 ${Math.max(0, Math.round((Date.now() - new Date(lv.ts).getTime()) / 1000))} 秒` : "钩子看不到思考过程";
+  const hasThink = (t.steps || []).some(s => s.type === "think");
+  const since = lv ? `${esc(lv.tool_name || (lv.decision || {}).tool || "")} · 已开始 ${Math.max(0, Math.round((Date.now() - new Date(lv.ts).getTime()) / 1000))} 秒` : (hasThink ? "已记录的思考在时间线里" : "钩子看不到思考过程");
   const c = t.counts || {};
   const running = (t.steps || []).filter(s => s.running);
   const cat = running.length ? ({web: "网页搜索", mcp: "MCP", read: "读取", write: "写入", shell: "命令"}[running[0].category] || "工具") : "";
@@ -1043,8 +1069,14 @@ function bindReplay() {
   document.querySelectorAll("[data-srisky]").forEach(b => b.onclick = () => { sessRisky = !sessRisky; render(); });
   document.querySelectorAll("[data-srange]").forEach(b => b.onclick = () => { sessRange = b.dataset.srange; render(); });
   document.querySelectorAll("[data-session]").forEach(tr => tr.onclick = () => {
-    openId = tr.dataset.session; turnSel = 0; openSteps = {}; drawerSeq = 0; finalOpen = false;
+    openId = tr.dataset.session; turnSel = 0; openSteps = {}; openThink = {}; drawerSeq = 0; finalOpen = false;
     location.hash = "#/sessions/" + openId; detail = null; refresh();
+  });
+  document.querySelectorAll("[data-think]").forEach(h => h.onclick = (ev) => {
+    ev.stopPropagation();
+    const key = h.dataset.think;
+    openThink[key] = !openThink[key];
+    render();
   });
   document.querySelectorAll("[data-step]").forEach(h => h.onclick = () => {
     const seq = Number(h.dataset.step);
@@ -1079,7 +1111,7 @@ function bindReplay() {
   });
 }
 function setTurn(i) {
-  turnSel = i; openSteps = {}; drawerSeq = 0; finalOpen = false;
+  turnSel = i; openSteps = {}; openThink = {}; drawerSeq = 0; finalOpen = false;
   location.hash = "#/sessions/" + openId + "/" + i;
 }
 

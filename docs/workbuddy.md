@@ -75,6 +75,13 @@ same Mac: `Bash` (`command`, `description`, `run_in_background`,
 its own on-demand tools through `DeferExecuteTool`, for example
 `{"toolName":"mcp__github__push_files","params":{...}}`.
 
+WorkBuddy's hook payloads do not include the model's reasoning. The session
+file named by `transcript_path` does, when the bundled CLI writes Claude-style
+assistant content: a `thinking` block with a `thinking` string (a `reasoning`
+block with `text` is read the same way). ReinsAARM copies that plaintext onto
+the timeline as 思考过程. A `redacted_thinking` block has no readable text and
+is skipped. Details and limits are in [activity.md](activity.md).
+
 ## What the `workbuddy` adapter does
 
 | Decision | Output | Why |
