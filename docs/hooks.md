@@ -92,3 +92,28 @@ Receipts record `kind` and a `resources` object (`paths`, `hosts`, `git_ops`, `m
 ## What the sidecar re-derives
 
 The hook forwards `tool_name` and `tool_input`. The sidecar, not the hook, classifies the kind and pulls commands, paths, and hosts out of the payload. A hook that omitted a host from a side channel would still be caught if the host is in the command string. A hook that never starts is not caught by this path; that is why the egress proxy and the `/proc` sensor exist.
+
+## Codex: user-level install and Codex Desktop
+
+`reinsaarm install-hooks codex --scope user --trust` merges the six ReinsAARM
+handlers into `~/.codex/hooks.json`. Groups that other tools already put there
+(for example an OpenTelemetry hook) stay first, so their `hooks.state` trust
+keys (`…:session_start:0:0`) and hashes do not change; ReinsAARM's handlers
+take the next index (`…:session_start:1:0`). User-level hooks load in every
+folder, so the installer writes no project `trust_level`, and `doctor` only
+asks for project trust when the project's own `.codex/hooks.json` has a
+ReinsAARM hook. `config.toml` keeps its file mode (often 0600).
+
+If a project also has a ReinsAARM `.codex/hooks.json`, Codex runs both and
+every event is recorded twice. Remove the project copy after a user-level
+install.
+
+Codex Desktop starts its `codex app-server` once and reads hooks per session.
+Restart the app after installing, then start a new thread.
+
+Code mode (Codex Desktop, `features.code_mode_host`): the model sends one
+`exec` cell of JavaScript that calls `tools.exec_command(...)` and other
+tools. Codex runs PreToolUse/PostToolUse for each nested tool call, not for
+the `exec` cell, and reports a nested shell call as `tool_name: "Bash"` with
+the command line. So shell policy applies inside code mode without extra
+normalization. Checked with Codex 0.163.0-alpha.10.2 on 2026-11-15.
