@@ -179,7 +179,10 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
+	argsLim, outLim, finalLim, links, transcript := cfg.Capture.Limits()
 	srv, err := daemon.New(daemon.Config{
+		ArgsPreview: argsLim, OutputPreview: outLim, FinalMessage: finalLim,
+		ResultLinks: links, Transcript: transcript,
 		Socket: cfg.Socket, ProfilePath: cfg.Profile, AuditPath: cfg.AuditLog,
 		ApprovalPath: cfg.Approvals, ChainID: cfg.ChainID, AgentID: cfg.AgentID,
 		Home: cfg.DeveloperHome, Web: cfg.WebListen, Egress: cfg.EgressListen,

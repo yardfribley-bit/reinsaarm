@@ -21,7 +21,7 @@
     --step-bg: #2E250C;
   }
   * { box-sizing: border-box; }
-  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.5 "Noto Sans CJK SC", "Noto Sans SC", Inter, "Segoe UI", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; }
   button, input, select, textarea { font: inherit; color: inherit; }
   .field { background: #0b0c0f; border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px; width: 100%; }
   textarea.field { min-height: 64px; resize: vertical; }
@@ -31,7 +31,7 @@
   .simout dt { color: var(--muted); }
   .simout dd { margin: 0; }
   .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
-  aside { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px; }
+  aside { position: sticky; top: 0; height: 100vh; background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px; }
   .brand { padding: 6px 10px 18px; }
   .brand b { color: var(--gold); letter-spacing: 0.08em; font-size: 15px; }
   .brand span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
@@ -41,6 +41,11 @@
   .badge { background: var(--gold); color: #1a1403; border-radius: 99px; min-width: 18px; padding: 0 6px; font-size: 11px; font-weight: 700; }
   .foot { margin-top: auto; padding: 12px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
   .foot strong { color: var(--text); font-weight: 600; }
+  .foot .fr { display: flex; justify-content: space-between; gap: 8px; margin-top: 3px; }
+  .foot strong.oktext { color: var(--allow); } .foot strong.badtext { color: var(--deny); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--allow); flex-shrink: 0; }
+  .pill.bad .dot { background: var(--deny); }
   main { display: flex; flex-direction: column; min-width: 0; }
   header { display: flex; gap: 8px; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); }
   .pill { border: 1px solid var(--line2); border-radius: 99px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
@@ -58,7 +63,7 @@
   table { width: 100%; border-collapse: collapse; }
   th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px; border-bottom: 1px solid var(--line); }
   td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace; font-size: 12px; }
+  .mono { font-family: "IBM Plex Mono", "Noto Sans Mono CJK SC", ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; }
   .chip { display: inline-block; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
   .chip.DENY { color: var(--deny); background: var(--deny-bg); }
   .chip.ALLOW { color: var(--allow); background: var(--allow-bg); }
@@ -85,6 +90,167 @@
   .tl .res { margin-top: 4px; }
   .tl pre.out { white-space: pre-wrap; word-break: break-all; background: #0b0c0f; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; max-height: 160px; overflow: auto; }
   .tl .ptext { background: #10161f; border: 1px solid #1f2b3a; border-radius: 8px; padding: 8px 10px; margin-top: 6px; white-space: pre-wrap; }
+  /* ---- Task replay (sessions) ---- */
+  :root { --card: #12151A; --blue: #6AA9FF; --blue-bg: #10161F; --blue-line: #1F2B3A; }
+  .rp .lead { color: var(--muted); font-size: 13px; margin: 0 0 16px; max-width: 820px; }
+  .rp h1 { letter-spacing: -0.01em; margin: 0 0 8px; }
+  .rp .filters { flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .rp .filters .sep { width: 1px; height: 18px; background: var(--line2); margin: 0 4px; }
+  .rp .filters button { font-size: 13px; color: var(--text); }
+  .rp .filters button.on { color: var(--gold); }
+  .rp .btn { font-size: 13px; display: inline-flex; align-items: center; gap: 6px; color: var(--text); white-space: nowrap; }
+  .rp .btn.gold { color: #1A1403; }
+  .rp .chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; line-height: 18px; letter-spacing: 0.02em; white-space: nowrap; }
+  .chip.fail { color: var(--deny); background: var(--deny-bg); }
+  .chip.risk, .chip.out { color: var(--step); background: var(--step-bg); }
+  .chip.rule { color: #D7B56A; background: #2A2412; }
+  .chip.src { color: #C5CAD3; background: #1A1D23; border: 1px solid var(--line2); font-weight: 600; }
+  .chip.src.auto { color: var(--step); background: var(--step-bg); border-color: #4A3B14; }
+  .chip.src.unknown { color: var(--muted); font-weight: 500; }
+  .chip.status { font-weight: 650; }
+  .chip.status.done { color: var(--muted); background: #171A1F; }
+  .chip.status.turn { color: #C5CAD3; background: #1A1D23; border: 1px solid var(--line2); }
+  .chip.status.live { color: var(--allow); background: var(--allow-bg); }
+  .chip.status.warnst { color: var(--step); background: var(--step-bg); }
+  .chip.kind { color: #9AA8BC; background: #151A22; font-weight: 600; letter-spacing: 0.04em; }
+  .stats-line { display: flex; gap: 16px; margin: 0 0 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+  .stats-line b { color: var(--text); font-weight: 600; }
+  .list-head, .srow { display: grid; grid-template-columns: 148px minmax(0,1fr) 56px 100px 86px; gap: 16px; align-items: start; }
+  .list-head { padding: 0 14px 8px; color: var(--muted); font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--line); }
+  .srow { padding: 14px; border-bottom: 1px solid var(--line); align-items: center; cursor: pointer; }
+  .srow:hover { background: #12151A; }
+  .agent-cell { display: flex; align-items: flex-start; gap: 10px; min-width: 0; }
+  .agent-cell .av { margin-top: 1px; }
+  .agent-cell .src-wrap { margin-top: 6px; }
+  .av { width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; letter-spacing: -0.03em; }
+  .av.codex { background: #1A2330; color: #8CB8F0; border: 1px solid #243044; }
+  .av.wb { background: #1A2420; color: #7BC49A; border: 1px solid #243830; }
+  .av.other { background: #1A1D23; color: #C5CAD3; border: 1px solid var(--line2); }
+  .agent-name { font-weight: 600; }
+  .agent-sub { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .proj { font-weight: 600; }
+  .proj-path { color: var(--muted); font-size: 11px; margin-top: 2px; word-break: break-all; }
+  .oneliner { color: var(--text); font-size: 13px; line-height: 1.45; margin-top: 2px; }
+  .oneliner .q { color: #D5D1C6; }
+  .risks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .srow .stat { font-variant-numeric: tabular-nums; }
+  .srow .when { color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .srow .when b { display: block; color: var(--text); font-weight: 500; }
+  .backrow { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .sess-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 4px; }
+  .sess-h h1 { margin: 0; }
+  .crumb { color: var(--muted); font-size: 12px; margin: 4px 0 0; word-break: break-all; }
+  .crumb.mono { font-size: 11px; }
+  .turn-tabs { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .turn-tabs .btn { flex: 1; min-width: 180px; justify-content: flex-start; padding: 8px 12px; text-align: left; background: transparent; }
+  .turn-tabs .btn.on { border-color: var(--gold); color: var(--gold); background: #14181D; }
+  .turn-tabs select { background: #14181D; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  .task { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 18px 18px 16px; margin-top: 16px; }
+  .task.danger-task { border-color: #5A2A2E; }
+  .task.live-task { border-color: #1D4A32; }
+  .task-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-size: 12px; color: var(--muted); }
+  .task-meta .dur { color: var(--text); font-weight: 600; }
+  .prompt-box { background: var(--blue-bg); border: 1px solid var(--blue-line); border-radius: 8px; padding: 10px 12px; white-space: pre-wrap; word-break: break-word; }
+  .prompt-box .plabel { font-size: 11px; color: #7A93B5; margin-bottom: 4px; font-weight: 600; }
+  .prompt-box .pbody { font-size: 14px; line-height: 1.55; color: #E7E4DA; }
+  .prompt-box .pbody.small { font-size: 13px; }
+  .summary { margin: 12px 0 0; font-size: 13px; color: #D5D1C6; padding: 10px 12px; background: #161A20; border-radius: 8px; border: 1px solid var(--line); line-height: 1.55; }
+  .summary strong { font-weight: 650; color: var(--text); }
+  .compare { display: grid; grid-template-columns: 1fr 1fr; margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  .cmp { padding: 14px 16px; min-width: 0; }
+  .cmp.left { background: #0F1115; border-right: 1px solid var(--line); }
+  .cmp.right { background: #141820; }
+  .cmp h3 { font-size: 12px; font-weight: 650; letter-spacing: 0.02em; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+  .cmp.left h3 { color: #8B918A; }
+  .cmp.right h3 { color: var(--gold); }
+  .cmp ul { margin: 0; padding: 0; list-style: none; }
+  .cmp li { font-size: 12.5px; line-height: 1.55; padding: 3px 0; color: #C9C6BB; word-break: break-word; }
+  .cmp li::before { content: "·"; color: var(--muted); margin-right: 8px; }
+  .cmp .missing { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--line2); }
+  .cmp .missing .ml { font-size: 11px; color: var(--muted); font-weight: 650; margin-bottom: 4px; }
+  .cmp .act { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 12.5px; line-height: 1.5; }
+  .cmp .act .n { flex-shrink: 0; width: 16px; height: 16px; border-radius: 50%; background: #1C2633; color: #8CB8F0; font-size: 10px; font-weight: 700; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+  .cmp .act .t { min-width: 0; word-break: break-word; }
+  .gantt-wrap { margin-top: 16px; }
+  .gantt-title { font-size: 12px; color: var(--muted); font-weight: 650; margin-bottom: 8px; }
+  .gantt { background: #0B0C0F; border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 12px; }
+  .gantt-scale { position: relative; height: 16px; font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .gantt-scale span { position: absolute; top: 0; white-space: nowrap; }
+  .gantt-track { position: relative; height: 36px; background: #14181D; border-radius: 5px; }
+  .gantt-bar { position: absolute; top: 6px; height: 24px; border-radius: 4px; font-size: 11px; display: flex; align-items: center; padding: 0 8px; overflow: hidden; white-space: nowrap; color: #C5CAD3; line-height: 24px; min-width: 3px; }
+  .gantt-bar.think { background: #1C2128; color: #7A818C; border: 1px dashed #2A3038; }
+  .gantt-bar.mcp { background: #1A2838; color: #9EC0EA; border: 1px solid #2A3F55; }
+  .gantt-bar.read { background: var(--step-bg); color: var(--step); border: 1px solid #5A4A18; z-index: 2; }
+  .gantt-bar.tool { background: #1A2420; color: #7BC49A; border: 1px solid #243830; }
+  .gantt-bar.failbar { background: var(--deny-bg); color: var(--deny); border: 1px solid #6A3034; z-index: 2; }
+  .gantt-bar.compose { background: #1A1D23; color: #8B918A; border: 1px solid #2A3038; }
+  .gantt-bar.live { background: var(--allow-bg); border: 1px solid #1D4A32; }
+  .gantt-ticks { position: relative; height: 20px; margin: 6px 0 2px; }
+  .gantt-ticks span { position: absolute; top: 0; transform: translateX(-50%); font-size: 10px; line-height: 16px; color: var(--muted); white-space: nowrap; }
+  .gantt-legend { display: flex; gap: 14px; font-size: 11px; color: var(--muted); flex-wrap: wrap; margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); }
+  .gantt-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .steps { margin-top: 16px; display: flex; flex-direction: column; gap: 8px; }
+  .step { border: 1px solid var(--line); border-radius: 10px; background: #101318; overflow: hidden; }
+  .step.open { background: #12161C; }
+  .step.risk-step { border-color: #5A4A18; }
+  .step.fail-step { border-color: #6A3034; background: #161012; }
+  .step.live-step { border-color: #1D4A32; }
+  .step.selected { outline: 1px solid var(--gold); outline-offset: -1px; }
+  .step-h { display: grid; grid-template-columns: 18px 64px 52px minmax(0,1fr) auto auto; gap: 8px; align-items: center; padding: 9px 12px; font-size: 13px; cursor: pointer; }
+  .step-h .desc { min-width: 0; overflow-wrap: anywhere; }
+  .step-h .chips { display: inline-flex; gap: 6px; }
+  .caret { color: var(--muted); font-size: 10px; }
+  .step-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .step-body { padding: 0 12px 12px 38px; }
+  .kv { display: grid; grid-template-columns: 72px minmax(0,1fr); gap: 6px 12px; font-size: 12.5px; margin: 0; }
+  .kv dt { color: var(--muted); padding-top: 2px; }
+  .kv dd { min-width: 0; word-break: break-word; margin: 0; }
+  pre.code { white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; background: #0B0C0F; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0; font-family: "IBM Plex Mono", "Noto Sans Mono CJK SC", ui-monospace, Menlo, monospace; font-size: 11.5px; line-height: 1.5; color: #D5D1C6; max-height: 320px; overflow: auto; }
+  pre.code.bad { color: var(--deny); }
+  .result-preview { background: #0B0C0F; border: 1px dashed #3A3420; border-radius: 8px; padding: 8px 10px; }
+  .result-preview .rl { font-size: 12px; padding: 3px 0; color: #C5CAD3; overflow-wrap: anywhere; }
+  .result-preview .rl span { color: var(--muted); margin-left: 8px; font-size: 11px; }
+  .empty { color: var(--muted); font-size: 12px; }
+  .untrusted-note { margin-top: 10px; padding: 8px 10px; border-radius: 8px; background: #16130C; border: 1px solid #3A3420; font-size: 12.5px; color: #E2D3A0; line-height: 1.5; }
+  .untrusted-note.badnote { background: #2A1416; border-color: #6A3034; color: #FFD7D9; }
+  .gap-note { display: flex; align-items: center; gap: 10px; padding: 8px 12px; color: var(--muted); font-size: 12px; border: 1px dashed var(--line2); border-radius: 8px; background: #0F1114; }
+  .cover-box { margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: #101318; border: 1px dashed var(--line2); color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+  .cover-box b { color: #A8AEB0; font-weight: 650; }
+  .cover-box ul { margin: 6px 0 0; padding: 0; list-style: none; }
+  .final-box { border: 1px solid var(--line); border-radius: 10px; background: #101318; }
+  .final-h { padding: 10px 12px; display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+  .final-preview { padding: 0 12px 12px 38px; color: #C9C6BB; font-size: 13px; line-height: 1.6; word-break: break-word; }
+  .final-preview .more { color: var(--gold); font-size: 12px; margin-top: 6px; cursor: pointer; white-space: normal; }
+  .rp .actions { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; align-items: center; }
+  .rp .actions .audit { margin-left: auto; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .rp .actions .audit .ok { font-weight: 650; color: var(--allow); }
+  .rp .actions .audit .bad { font-weight: 650; color: var(--deny); }
+  .sdrawer { position: fixed; top: 0; right: 0; height: 100%; width: 420px; background: #12151A; border-left: 1px solid var(--line2); box-shadow: -20px 0 40px #0008; padding: 22px 20px 24px; overflow: auto; z-index: 20; }
+  .sdrawer h2 { font-size: 16px; font-weight: 600; margin: 0; }
+  .drawer-h { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+  .sdrawer .why { background: var(--step-bg); border: 1px solid #5A4A18; border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.55; color: #E2D3A0; margin: 12px 0; }
+  .sdrawer .why b { color: var(--step); display: block; margin-bottom: 4px; }
+  .sdrawer .why.deny { background: var(--deny-bg); border-color: #6A3034; color: #FFD7D9; }
+  .sdrawer .why.deny b { color: var(--deny); }
+  .sdrawer .why.plain { background: #14181D; border-color: var(--line2); color: #C9C6BB; }
+  .sdrawer .why.plain b { color: var(--text); }
+  .dsec { margin-top: 12px; }
+  .dsec h3 { font-size: 11px; color: var(--muted); font-weight: 650; letter-spacing: 0.04em; margin: 0 0 6px; }
+  .receipt { font-size: 12px; color: var(--muted); line-height: 1.6; }
+  .live-banner { display: flex; align-items: center; gap: 10px; background: #10261A; border: 1px solid #1D4A32; border-radius: 10px; padding: 10px 14px; margin-top: 12px; font-size: 13px; }
+  .spinner { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; border: 2px solid #1D4A32; border-top-color: var(--allow); animation: rpspin 0.9s linear infinite; display: inline-block; }
+  @keyframes rpspin { to { transform: rotate(360deg); } }
+  .counts { display: flex; gap: 16px; margin-top: 12px; }
+  .count { flex: 1; background: #12151A; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .count .n { font-size: 18px; font-weight: 650; }
+  .count .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .count.hot { border-color: #1D4A32; }
+  .path-badge { margin-left: 6px; }
+  .rp .warntext { color: var(--step); }
+  .policy-new { border-color: var(--gold); }
+  .policy-new .simgrid { grid-template-columns: 1fr 1fr 1fr; }
+  .audit-range { margin: 0 0 10px; }
+  .tl.hl:before { background: var(--step); }
 </style>
 </head>
 <body>
@@ -100,9 +266,9 @@
       <button data-page="health">健康检查</button>
     </nav>
     <div class="foot">
-      <div>sidecar <strong id="foot-side">—</strong></div>
-      <div>延迟 p50 <strong id="foot-lat" class="mono">—</strong></div>
-      <div>审计校验 <strong id="foot-audit">—</strong></div>
+      <div class="fr"><span>sidecar</span><strong id="foot-side">—</strong></div>
+      <div class="fr"><span>延迟 p50</span><strong id="foot-lat" class="mono">—</strong></div>
+      <div class="fr"><span>审计校验</span><strong id="foot-audit">—</strong></div>
     </div>
   </aside>
   <main>
@@ -123,14 +289,18 @@ function readHash() {
   const parts = (location.hash.replace(/^#\/?/, "") || "stream").split("/");
   page = parts[0] || "stream";
   openId = parts[1] || "";
+  turnSel = Number(parts[2] || 0) || 0;
+  if (page === "sessions" && parts[3]) drawerSeq = Number(parts[3]) || 0;
 }
 readHash();
 let filter = "all";
+let newRule = null;
 let boot = {};
 let receipts = [];
 let approvals = {pending: [], resolved: []};
 let drawer = null;
 let rendered = "";
+let lastHTML = "";
 let sessions = [];
 let sessionAgent = "";
 let detail = null;
@@ -181,6 +351,8 @@ async function refresh() {
   badge.hidden = !boot.pending;
   badge.textContent = boot.pending || "";
   $("#foot-side").textContent = boot.sidecar === "running" ? "运行中" : "未连接";
+  $("#foot-side").className = boot.sidecar === "running" ? "oktext" : "badtext";
+  $("#foot-audit").className = boot.audit_ok ? "oktext" : "badtext";
   $("#foot-lat").textContent = boot.latency_p50_us ? (boot.latency_p50_us/1000).toFixed(1) + " ms" : "—";
   $("#foot-audit").textContent = boot.audit_ok ? "通过" : "未通过";
   setPill($("#pill-side"), boot.sidecar === "running", "sidecar 运行中", "sidecar 未连接");
@@ -188,12 +360,15 @@ async function refresh() {
   setPill($("#pill-proj"), boot.project_trust === "trusted", "项目已信任", "项目未信任");
   if (page === "stream" || page === "audit") {
     const q = page === "stream" ? filter : "all";
-    receipts = (await api("/api/receipts?filter=" + encodeURIComponent(q))).receipts || [];
+    const m = page === "audit" && /^(\d+)-(\d+)$/.exec(openId);
+    receipts = (await api("/api/receipts?filter=" + encodeURIComponent(q) + (m ? `&from=${m[1]}&to=${m[2]}` : ""))).receipts || [];
+    if (m) await loadChain(false);
   }
   if (page === "sessions") {
     if (openId) {
       try { detail = await api("/api/sessions/" + encodeURIComponent(decodeURIComponent(openId))); }
       catch (e) { detail = {error: String(e.message || e)}; }
+      await loadChain(false);
     } else {
       detail = null;
       sessions = (await api("/api/sessions")).sessions || [];
@@ -207,7 +382,7 @@ async function refresh() {
 }
 function setPill(el, ok, yes, no) {
   el.className = "pill " + (ok ? "ok" : "bad");
-  el.textContent = ok ? yes : no;
+  el.innerHTML = `<span class="dot"></span>${esc(ok ? yes : no)}`;
 }
 function banner() {
   if (!boot.untrusted) return "";
@@ -228,13 +403,19 @@ function render() {
   rendered = page;
   view.className = "content" + (page === "stream" ? "" : " single");
   if (page === "stream") view.innerHTML = streamHTML();
-  else if (page === "sessions") view.innerHTML = openId ? sessionDetailHTML() : sessionsHTML();
+  else if (page === "sessions") {
+    const html = openId ? sessionDetailHTML() : sessionsHTML();
+    if (html !== lastHTML) { view.innerHTML = html; lastHTML = html; }
+    bind();
+    return;
+  }
   else if (page === "approvals") view.innerHTML = approvalsHTML();
   else if (page === "audit") view.innerHTML = auditHTML();
-  else if (page === "policy") view.innerHTML = `<h1>策略</h1>${simHTML()}<div id="policy">加载中…</div>`;
+  else if (page === "policy") view.innerHTML = `<h1>策略</h1>${openId === "new-mcp-rule" ? newRuleHTML() : ""}${simHTML()}<div id="policy">加载中…</div>`;
   else view.innerHTML = `<h1>健康检查</h1><div id="health">加载中…</div>`;
+  lastHTML = "";
   bind();
-  if (page === "policy") { bindSim(); loadPolicy(); }
+  if (page === "policy") { bindSim(); bindNewRule(); loadPolicy(); if (openId === "sim" && sim.main) runSim(); }
   if (page === "health") loadHealth();
 }
 function streamHTML() {
@@ -262,71 +443,640 @@ function whenFull(ts) {
   if (Number.isNaN(d.getTime())) return ts;
   return d.toLocaleString("zh-CN", {hour12:false, month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", second:"2-digit"});
 }
+// ---- Task replay (会话) ----
+let sessRisky = false;
+let sessRange = "today";
+var turnSel = turnSel || 0; // 1-based turn index from the hash; 0 = latest
+var drawerSeq = drawerSeq || 0; // step shown in the side drawer
+let openSteps = {};       // seq -> true/false, user toggles
+let finalOpen = false;
+let chain = null;         // {ok, count}
+let chainAt = 0;
+const TZ = (Intl.DateTimeFormat().resolvedOptions().timeZone) || "本地时间";
+
+function hhmmss(ts) { return when(ts); }
+function hhmm(ts) { const s = when(ts); return s.slice(0, 5); }
+function mmdd(ts) {
+  const d = new Date(ts); if (Number.isNaN(d.getTime())) return "";
+  return String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getDate()).padStart(2, "0");
+}
+function startLabel(ts) {
+  const d = new Date(ts); if (Number.isNaN(d.getTime())) return "";
+  return mmdd(ts) + " " + hhmmss(ts);
+}
+function dur(ms) {
+  if (ms === undefined || ms === null) return "";
+  if (ms < 1000) return ms + "ms";
+  const s = Math.floor(ms / 1000);
+  if (s < 10) return (ms / 1000).toFixed(1) + "s";
+  if (s < 60) return s + "秒";
+  if (s < 3600) return Math.floor(s / 60) + "分" + (s % 60) + "秒";
+  return Math.floor(s / 3600) + "时" + Math.floor(s / 60) % 60 + "分";
+}
+function durSpaced(ms) { return dur(ms).replace(/(\d)([分秒时])/g, "$1 $2 ").replace(/\s+$/, ""); }
+function avatar(c) {
+  if (c === "codex") return `<div class="av codex">C</div>`;
+  if (c === "workbuddy") return `<div class="av wb">W</div>`;
+  return `<div class="av other">${esc((agentName(c) || "?").slice(0, 2))}</div>`;
+}
+function srcChip(code, label, long) {
+  if (!code || code === "unknown") return `<span class="chip src unknown">${esc(label || "来源未记录")}</span>`;
+  if (code === "automation") return `<span class="chip src auto">${long ? "自动化任务（非人工下发）" : "自动化任务"}</span>`;
+  return `<span class="chip src">${esc(label)}</span>`;
+}
+function riskChip(r, inTurn) {
+  const cls = {deny: "DENY", fail: "fail", outside_read: "out", outside_write: "out", outside_path: "out", no_rule_mcp: "rule", credential: "DENY", egress: "risk", untrusted_then_sensitive: "risk"}[r.code] || "risk";
+  let label = r.label;
+  if (r.code === "fail" || r.code === "deny") { if (inTurn) label += " " + r.count; }
+  else if (r.count > 1 && (r.code === "no_rule_mcp" || r.code === "egress" || r.code === "untrusted_then_sensitive")) label += " ×" + r.count;
+  return `<span class="chip ${cls}">${esc(label)}</span>`;
+}
+function statusChip(st) {
+  if (st === "running") return `<span class="chip status live">进行中</span>`;
+  if (st === "turn_done" || st === "done") return `<span class="chip status turn">本轮结束</span>`;
+  if (st === "no_stop") return `<span class="chip status warnst">未收到 Stop</span>`;
+  if (st === "idle") return `<span class="chip status warnst">30 分钟无活动</span>`;
+  if (st === "decisions_only") return `<span class="chip status done">仅执行前决定</span>`;
+  return `<span class="chip status done">已结束</span>`;
+}
+function homeShort(p) { return String(p || ""); }
+function inRange(ts) {
+  if (sessRange === "all") return true;
+  const d = new Date(ts); if (Number.isNaN(d.getTime())) return true;
+  const now = new Date();
+  if (sessRange === "today") return d.toDateString() === now.toDateString();
+  return now - d <= 7 * 86400000;
+}
+
 function sessionsHTML() {
-  const agents = [...new Set(sessions.map(x => x.client))];
-  const list = sessions.filter(x => !sessionAgent || x.client === sessionAgent);
-  const rows = list.map(x => `<tr class="click" data-session="${esc(encodeURIComponent(x.key))}">
-    <td>${esc(agentName(x.client))}</td>
-    <td class="mono" title="${esc(x.cwd)}">${esc(x.project || "—")}</td>
-    <td class="mono muted">${esc(whenFull(x.started))}</td>
-    <td class="mono muted">${esc(whenFull(x.last_ts))}</td>
-    <td>${x.prompts}</td><td>${x.tools}</td>
-    <td>${x.denied ? `<span class="badtext">${x.denied}</span>` : "0"}</td>
-    <td>${x.failed ? `<span class="badtext">${x.failed}</span>` : "0"}</td>
-    <td>${x.ended ? `<span class="muted">已结束</span>` : x.running ? `<span class="oktext">进行中</span>` : `<span class="muted">空闲</span>`}</td></tr>`).join("")
-    || `<tr><td colspan="9" class="muted">还没有会话。安装活动事件后（reinsaarm install-hooks codex --trust 或 workbuddy），新会话会出现在这里。</td></tr>`;
-  return `<section><h1>会话</h1>
-    <p class="muted">每个 Agent 会话里用户说了什么、调用了哪些工具、结果如何。提示词默认只存打码后的摘要。</p>
-    <div class="filters">${[["", "全部"], ...agents.map(a => [a, agentName(a)])].map(([id, label]) =>
-      `<button data-sagent="${esc(id)}" class="${sessionAgent===id?"on":""}">${esc(label)}</button>`).join("")}</div>
-    <table><thead><tr><th>Agent</th><th>项目</th><th>开始</th><th>最近活动</th><th>提示</th><th>工具调用</th><th>拒绝</th><th>失败</th><th>状态</th></tr></thead>
-    <tbody>${rows}</tbody></table></section>`;
+  const agents = [...new Set(["codex", "workbuddy", ...sessions.map(x => x.client)])];
+  const timeList = sessions.filter(x => inRange(x.last_ts));
+  const list = timeList.filter(x => (!sessionAgent || x.client === sessionAgent) && (!sessRisky || x.risky));
+  const risky = list.filter(x => x.risky);
+  const labels = [...new Set(risky.flatMap(x => (x.risks || []).map(r => r.label.replace(/ MCP$/, " MCP"))))];
+  const rangeName = {today: "今天", "7d": "近 7 天", all: "全部时间"}[sessRange];
+  const rows = list.map(x => `<div class="srow" data-session="${esc(encodeURIComponent(x.key))}">
+      <div class="agent-cell">${avatar(x.client)}<div>
+        <div class="agent-name">${esc(agentName(x.client))}</div>
+        <div class="agent-sub">${esc(x.model || "")}</div>
+        <div class="src-wrap">${srcChip(x.source, x.source_label)}</div></div></div>
+      <div>
+        <div class="proj">${esc(x.project || "未知项目")}</div>
+        <div class="proj-path mono">${esc(homeShort(x.cwd))}</div>
+        <div class="oneliner"><span class="q">${esc(x.latest_title || "（没有用户提示）")}</span></div>
+        ${(x.risks || []).length ? `<div class="risks">${x.risks.map(r => riskChip(r, false)).join("")}</div>` : ""}
+      </div>
+      <div class="stat">${x.turns}</div>
+      <div>${statusChip(x.status)}</div>
+      <div class="when"><b>${esc(hhmmss(x.last_ts))}</b>${esc(mmdd(x.last_ts))}</div>
+    </div>`).join("") || `<p class="muted" style="padding:14px">${sessions.length ? "这个筛选下没有会话。" : "还没有会话。安装活动事件后（reinsaarm install-hooks codex --trust 或 workbuddy），新会话会出现在这里。"}</p>`;
+  const btn = (attr, val, on, label) => `<button ${attr}="${esc(val)}" class="${on ? "on" : ""}">${esc(label)}</button>`;
+  return `<section class="rp"><h1>会话</h1>
+    <p class="lead">按「一轮任务」查看 Agent 实际做了什么。列表标出 Agent 界面里不会出现的越界读取、无规则放行和失败。</p>
+    <div class="filters">
+      ${btn("data-sagent", "", !sessionAgent, "全部")}
+      ${agents.map(a => btn("data-sagent", a, sessionAgent === a, agentName(a))).join("")}
+      <span class="sep"></span>
+      ${btn("data-srisky", "1", sessRisky, "有风险")}
+      <span class="sep"></span>
+      ${btn("data-srange", "today", sessRange === "today", "今天")}
+      ${btn("data-srange", "7d", sessRange === "7d", "近 7 天")}
+      ${btn("data-srange", "all", sessRange === "all", "全部时间")}
+    </div>
+    <div class="stats-line">
+      <span>${rangeName} <b>${list.length}</b> 个会话</span>
+      <span>其中 <b>${risky.length}</b> 个有风险${labels.length ? "（" + esc(labels.join("、")) + "）" : ""}</span>
+      <span>时间均为 <b>${esc(TZ)}</b></span>
+    </div>
+    <div class="list-head"><div>Agent / 来源</div><div>项目 / 最近一轮任务</div><div>任务</div><div>状态</div><div>最近活动</div></div>
+    ${rows}</section>`;
 }
-function resultHTML(r) {
-  if (!r) return `<div class="res muted">没有结果记录（被拦截、仍在运行，或未安装执行后事件）</div>`;
-  const a = r.activity || {};
-  const bits = [];
-  if (a.success === true) bits.push(`<span class="oktext">✓ 成功</span>`);
-  else if (a.success === false) bits.push(`<span class="badtext">✗ 失败</span>`);
-  else bits.push(`<span class="muted">已返回</span>`);
-  if (a.exit_code !== undefined && a.exit_code !== null) bits.push(`退出码 <span class="mono">${esc(a.exit_code)}</span>`);
-  if (a.interrupted) bits.push("被中断");
-  if (a.duration_ms !== undefined && a.duration_ms !== null) bits.push(`${a.duration_from === "hooks" ? "约 " : ""}${a.duration_ms < 1000 ? a.duration_ms + " ms" : (a.duration_ms/1000).toFixed(1) + " s"}`);
-  if ((a.files||[]).length) bits.push(`文件 <span class="mono">${esc(a.files.join(", "))}</span>`);
-  const out = a.error ? `<pre class="out mono badtext">${esc(a.error)}</pre>` : a.output ? `<pre class="out mono">${esc(a.output)}</pre>` : "";
-  return `<div class="res">${bits.join(" · ")}</div>${out}`;
+
+function curTurn() {
+  const turns = (detail && detail.turns) || [];
+  if (!turns.length) return null;
+  const i = turnSel >= 1 && turnSel <= turns.length ? turnSel : turns.length;
+  return turns[i - 1];
 }
-function tlHTML(it) {
-  const t = `<span class="mono muted">${esc(when(it.ts))}</span> `;
-  const e = it.event || {};
-  const a = e.activity || {};
-  if (it.type === "start") return `<div class="tl"><div>${t}<strong>会话开始</strong> <span class="muted">${esc(a.source || "")}${a.model ? " · " + esc(a.model) : ""}</span></div></div>`;
-  if (it.type === "end") return `<div class="tl end"><div>${t}<strong>会话结束</strong> <span class="muted">${esc(a.reason || "")}</span></div></div>`;
-  if (it.type === "prompt") return `<div class="tl prompt"><div>${t}<strong>用户提示</strong> <span class="muted">${a.prompt_chars ? "共 " + a.prompt_chars + " 字" : ""}${a.prompt_full ? " · 全文" : " · 摘要"}</span></div>
-    <div class="ptext">${esc(a.prompt || "")}</div></div>`;
-  if (it.type === "stop") return `<div class="tl stop"><div>${t}<strong>Agent 完成本轮</strong></div>${a.message ? `<div class="muted">${esc(a.message)}</div>` : ""}</div>`;
-  if (it.type === "tool") {
-    const d = it.decision, r = it.result;
-    const head = d || r;
-    const fail = (d && d.enforced_decision === "DENY") || (r && r.activity && r.activity.success === false);
-    const blocked = d && (d.enforced_decision === "DENY" || d.enforced_decision === "DEFER");
-    return `<div class="tl ${fail ? "fail" : ""}"><div>${t}${kindTag(head)}<span class="mono">${esc(what(head))}</span> ${d ? chips(d) : `<span class="muted">（无执行前决定）</span>`}</div>
-      ${d && d.enforced_decision !== "ALLOW" ? `<div class="muted">${esc(d.reason || "")} <span class="mono">${esc((d.rule_ids||[]).join(", "))}</span></div>` : ""}
-      ${blocked ? "" : resultHTML(r)}</div>`;
+function kindChip(st) {
+  const m = {web: "MCP", mcp: "MCP", read: "读取", write: "写入", shell: "命令", other: "其他", start: "会话", end: "会话"};
+  let k = m[st.category] || "其他";
+  const head = st.decision || st.result || {};
+  if (st.category === "web" && head.kind === "web_fetch") k = "网页";
+  return `<span class="chip kind">${k}</span>`;
+}
+function shortPath(p, keep) {
+  const parts = String(p).split("/");
+  keep = keep || 5;
+  if (parts.length <= keep + 1) return p;
+  if (keep <= 3 && parts[1] === "Users" && parts.length > keep + 4) return parts.slice(0, 5).join("/") + "/…/" + parts.slice(-keep + 1).join("/");
+  return "…/" + parts.slice(-keep).join("/");
+}
+function tilde(p) { return String(p).replace(/^\/Users\/[^/]+\//, "~/").replace(/^\/home\/[^/]+\//, "~/"); }
+function shortCmd(cmd, st) {
+  let s = cmd || "";
+  for (const pi of (st.paths || [])) if (pi.path && pi.path.length > 40) s = s.split(pi.path).join(shortPath(pi.path));
+  return s;
+}
+function actOf(r) { return (r && r.activity) || {}; }
+function fullCmd(st) {
+  const d = st.decision || st.result || {};
+  const a = actOf(st.decision);
+  return a.args_preview && (st.category === "shell" || st.category === "read" || st.category === "write" && d.kind === "shell") ? a.args_preview : (d.command_preview || "");
+}
+function stepDesc(st) {
+  const head = st.decision || st.result || {};
+  if (st.category === "web" || st.category === "mcp") {
+    const name = st.server ? `${st.server} / ${st.tool_name}` : head.tool;
+    let tail = "";
+    if (st.query) tail = ` · 搜索「${esc(st.query)}」`;
+    else if (st.category === "web") tail = head.kind === "web_fetch" ? " · 访问网页" : " · 搜索网页";
+    if (st.running) tail = st.query ? ` · 正在搜索「${esc(st.query)}」` : (st.category === "web" ? " · 正在搜索网页" : " · 进行中");
+    return `<span class="mono">${esc(name)}</span>${tail}`;
   }
-  return `<div class="tl"><div>${t}${esc(e.event_type || "")}</div></div>`;
+  const cmd = head.kind === "shell" ? fullCmd(st) : "";
+  if (cmd) return `<span class="mono" style="word-break:break-all">${esc(shortCmd(cmd, st))}</span>`;
+  const p = (st.paths || [])[0];
+  return `<span class="mono">${esc(head.tool || "")}${p ? " " + esc(shortPath(p.path)) : ""}</span>`;
+}
+function decChip(st) {
+  const d = st.decision;
+  if (!d) return `<span class="muted" style="font-size:12px">无执行前决定</span>`;
+  return chips(d);
+}
+function isOpen(st, t) {
+  if (st.seq in openSteps) return openSteps[st.seq];
+  if (st.running || st.failed || st.denied || st.outside || st.after_untrusted || st.credential) return true;
+  const firstWeb = (t.steps || []).find(x => x.untrusted || (x.category === "web" && x.no_rule));
+  return !!(firstWeb && firstWeb.seq === st.seq);
+}
+function sensitiveAfter(st, t) {
+  return (t.steps || []).filter(x => x.type === "tool" && x.index > st.index && x.sensitive && !x.denied);
+}
+function whyAllowed(st) {
+  const d = st.decision;
+  if (!d) return "没有执行前决定（钩子只记录了结果）";
+  const ids = d.rule_ids || [];
+  if (d.enforced_decision === "DENY" || d.enforced_decision === "DEFER") return `策略拒绝：${esc(d.reason || "")} <span class="mono">${esc(ids.join(", "))}</span>`;
+  if (st.no_rule) {
+    const n = (detail.policy || {}).mcp_rules;
+    return `未命中任何规则${n === 0 ? "（mcp.rules 为空）" : ""}`;
+  }
+  if (ids.length === 1 && ids[0] === "R-DEFAULT-ALLOW") return "未命中任何规则";
+  return `${esc(d.reason || "")} <span class="mono">${esc(ids.join(", "))}</span>`;
+}
+function linksHTML(links) {
+  return `<div class="result-preview">${links.map(l => `<div class="rl mono">${esc(l.url).replace(/\//g, "/<wbr>")}${l.title ? ` <span>${esc(l.title)}</span>` : ""}</div>`).join("")}</div>`;
+}
+function resultBlock(st) {
+  const r = st.result;
+  if (st.running) return `<span class="empty">结果尚未返回</span>`;
+  if (!r) return st.denied ? `<span class="empty">已拒绝，未执行</span>` : `<span class="empty">没有结果记录（仍在运行、被中断，或未安装执行后事件）</span>`;
+  const a = actOf(r);
+  const links = st.links || a.result_links || [];
+  const out = a.error || a.output || "";
+  let html = "";
+  if (links.length) html += linksHTML(links);
+  const pre = out ? `<pre class="code ${st.failed ? "bad" : ""}" style="${links.length ? "margin-top:6px" : ""}">${esc(out)}${a.truncated ? "\n…（已截断）" : ""}</pre>` : "";
+  if (links.length && pre) html += `<details style="margin-top:6px"><summary class="muted" style="font-size:12px;cursor:pointer">原始输出（已打码、截断）</summary>${pre}</details>`;
+  else html += pre;
+  return html || `<span class="empty">已返回，没有输出</span>`;
+}
+function argsBlock(st) {
+  const a = actOf(st.decision);
+  if (a.args_preview) return `<pre class="code">${esc(a.args_preview)}</pre>`;
+  if (!st.decision) return `<span class="empty">未记录参数</span>`;
+  return `<span class="empty">未记录参数（这条回执写于参数采集上线之前）</span>`;
+}
+function resultMeta(st) {
+  const r = st.result;
+  if (!r) return st.running ? "进行中" : (st.denied ? "未执行" : "无结果记录");
+  const a = actOf(r);
+  const bits = [];
+  if (a.exit_code !== undefined && a.exit_code !== null) bits.push(`<span class="${a.exit_code === 0 ? "oktext" : "badtext"}">${esc(a.exit_code)}</span>`);
+  else bits.push(`<span class="muted">未回传${r.client === "codex" ? "（Codex 不带退出码）" : ""}</span>`);
+  bits.push(st.failed ? `<span class="badtext">失败</span>` : "已返回");
+  if (st.duration_ms !== undefined && st.duration_ms !== null) bits.push((a.duration_from === "hooks" ? "约 " : "") + dur(st.duration_ms));
+  return bits.join(" · ");
+}
+function untrustedNote(st, t) {
+  const after = sensitiveAfter(st, t);
+  if (!after.length) return `<div class="untrusted-note">不可信输入已进入上下文（网页 / MCP 结果）。本步之后${t.status === "running" ? "尚未" : "未"}出现写文件、改动命令或 shell 出网。</div>`;
+  return `<div class="untrusted-note">不可信输入已进入上下文（网页 / MCP 结果）。本步之后出现了 ${after.length} 次敏感操作：${after.map(x => `第 ${x.index} 步 <span class="mono">${esc(x.label.slice(0, 60))}</span>`).join("、")}。</div>`;
+}
+function failNote(st) {
+  const hint = st.fail_hint ? `出现 ${esc(st.fail_hint)}` : "报告失败";
+  const how = st.fail_source === "output" ? "（Agent 没有回传退出码，按输出判断）" : st.fail_source === "exit_code" ? "（退出码非 0）" : "";
+  return `<div class="untrusted-note badnote">工具已放行并已返回，但${st.fail_source === "output" ? "输出中" : "结果"}${hint}${how}。这是执行失败，不是策略拒绝。</div>`;
+}
+function stepBody(st, t) {
+  const d = st.decision || st.result || {};
+  if (drawerSeq === st.seq) {
+    return `<div class="step-body"><div class="muted" style="font-size:12px">已在右侧打开步骤详情。${st.query ? `搜索词：<span class="mono" style="color:var(--text)">${esc(st.query)}</span>` : ""}</div></div>`;
+  }
+  const rows = [];
+  const detailLink = `<div style="margin-top:8px"><a href="javascript:void 0" data-sdrawer="${st.seq}" style="font-size:12px">在侧栏查看详情 →</a></div>`;
+  if (st.category === "web" || st.category === "mcp") {
+    if (st.running) {
+      if (st.query) rows.push(["搜索词", `<span class="mono">${esc(st.query)}</span>`]);
+      rows.push(["参数", argsBlock(st)]);
+      rows.push(["判定", `${decChip(st)} · ${whyAllowed(st)} · 结果尚未返回`]);
+    } else {
+      rows.push(["判定", `${decChip(st)} · ${whyAllowed(st)}`]);
+      if (st.query) rows.push(["搜索词", `<span class="mono">${esc(st.query)}</span>`]);
+      rows.push(["参数", argsBlock(st)]);
+      rows.push(["结果", resultBlock(st)]);
+    }
+  } else {
+    const failed = st.failed && !st.denied;
+    rows.push(["判定", `${decChip(st)} · ${failed ? "策略放行，但进程以异常结束" : whyAllowed(st)}`]);
+    const cmd = d.kind === "shell" ? fullCmd(st) : "";
+    if (cmd) rows.push(["命令", `<pre class="code">${esc(cmd)}</pre>`]);
+    else rows.push(["参数", argsBlock(st)]);
+    if (d.cwd) rows.push(["工作目录", `<span class="mono">${esc(d.cwd)}</span>`]);
+    if ((st.paths || []).length) rows.push(["路径", st.paths.map(pi => `<span class="mono">${esc(pi.path)}</span>${pi.outside ? ` <span class="chip out path-badge">项目外</span>` : ""}`).join("<br>")]);
+    if ((st.hosts || []).length) rows.push(["主机", `<span class="mono">${esc(st.hosts.join(", "))}</span>`]);
+    rows.push(["退出码", resultMeta(st)]);
+    if (st.result) rows.push(["输出", resultBlock(st)]);
+    const ids = ((st.decision || {}).rule_ids || []).filter(x => x !== "R-DEFAULT-ALLOW");
+    if (!st.denied) rows.push(["命中规则", ids.length ? `<span class="mono">${esc(ids.join(", "))}</span>` :
+      (st.category === "read" && st.outside ? "无。写操作已有工作区限制，读路径目前没有边界规则，因此被静默放行。" : "无")]);
+  }
+  let notes = "";
+  if (st.denied) notes += `<div class="untrusted-note badnote">策略拒绝：${esc((st.decision || {}).reason || "")}。这一步没有执行。</div>`;
+  else if (st.failed) notes += failNote(st);
+  if (st.untrusted) notes += untrustedNote(st, t);
+  if (st.after_untrusted) notes += `<div class="untrusted-note">这一步是敏感操作，发生在本轮不可信输入（网页 / MCP 结果）之后，请对照上面的结果核对它是否被诱导。</div>`;
+  return `<div class="step-body"><dl class="kv">${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>${notes}${st.running ? "" : detailLink}</div>`;
+}
+function stepHTML(st, t) {
+  if (st.type === "start" || st.type === "end") {
+    return `<div class="step"><div class="step-h" style="cursor:default"><span class="caret">▶</span><span class="step-time mono">${esc(hhmmss(st.ts))}</span>
+      <span class="chip kind">会话</span><span>${esc(st.label)}</span><span></span><span></span></div></div>`;
+  }
+  if (st.type !== "tool") return "";
+  const open = isOpen(st, t);
+  const cls = ["step", open ? "open" : "", st.failed || st.denied ? "fail-step" : (st.outside || st.no_rule || st.after_untrusted || st.credential ? "risk-step" : ""), st.running ? "live-step" : "", drawerSeq === st.seq ? "selected" : ""].join(" ");
+  const caret = st.running ? `<span class="spinner" style="margin:0 2px"></span>` : `<span class="caret">${open ? "▼" : "▶"}</span>`;
+  const c5 = `<span class="chips">${st.outside && !open ? `<span class="chip out">项目外</span>` : ""}${decChip(st)}</span>`;
+  let c6;
+  if (st.running) c6 = `<span class="chip status live">进行中</span>`;
+  else if (st.denied) c6 = `<span class="chip DENY">已拒绝</span>`;
+  else if (st.failed) c6 = `<span class="chip fail">失败</span>`;
+  else c6 = `<span class="muted mono">${st.duration_ms !== undefined && st.duration_ms !== null ? esc(dur(st.duration_ms)) : ""}</span>`;
+  let c7 = "";
+  if (st.running) {
+    const ms = Date.now() - new Date(st.ts).getTime();
+    c7 = `<span class="muted mono">${esc(dur(Math.max(0, Math.floor(ms / 1000)) * 1000))}</span>`;
+  }
+  return `<div class="${cls}"><div class="step-h" data-step="${st.seq}">${caret}<span class="step-time mono">${esc(hhmmss(st.ts))}</span>${kindChip(st)}
+    <span class="desc">${stepDesc(st)}</span>${st.running ? c6 + c7 : c5 + c6}</div>${open ? stepBody(st, t) : ""}</div>`;
+}
+function noteHTML(n) {
+  return `<div class="step"><div class="step-h" style="cursor:default"><span class="caret">▶</span><span class="step-time mono">${esc(hhmmss(n.ts))}</span>
+    <span class="chip kind">说明</span><span>Agent：「${esc(n.text)}」</span><span></span><span></span></div></div>`;
+}
+function gapHTML(g, first, t) {
+  if (first && t.prompt) return `<div class="gap-note">从提示提交到下一步，中间 ${esc(durSpaced(g.ms))}没有钩子事件。这段是模型思考过程，当前不可见——不要把空白当成「什么都没做」。</div>`;
+  return `<div class="gap-note">${esc(hhmmss(g.from))} – ${esc(hhmmss(g.to))} · 思考 ${esc(dur(g.ms))} · 钩子不可见</div>`;
+}
+function stepsHTML(t) {
+  const out = [];
+  const notes = (t.commentary || []).slice().sort((a, b) => (a.ts || "").localeCompare(b.ts || ""));
+  let ni = 0;
+  const gaps = (t.gaps || []).filter(g => g.kind === "think" && g.before_seq);
+  let gi = 0;
+  for (const st of t.steps || []) {
+    if (st.type === "prompt" || st.type === "stop") continue;
+    const g = gaps.find(x => x.before_seq === st.seq);
+    if (g) { out.push(gapHTML(g, gi === 0, t)); gi++; }
+    while (ni < notes.length && notes[ni].ts && notes[ni].ts <= st.ts) out.push(noteHTML(notes[ni++]));
+    out.push(stepHTML(st, t));
+  }
+  if (t.status === "running") {
+    const tail = notes.slice(ni);
+    tail.forEach(n => out.push(noteHTML(n)));
+    ni = notes.length;
+    const lastTs = Math.max(...(t.steps || []).map(s => new Date(s.end_ts || s.ts).getTime()).filter(x => !Number.isNaN(x)));
+    const idle = Date.now() - lastTs;
+    if (!t.live && idle > 10000) out.push(`<div class="gap-note">思考 ${esc(dur(Math.floor(idle / 1000) * 1000))} · 钩子不可见 · 进行中</div>`);
+  }
+  while (ni < notes.length) out.push(noteHTML(notes[ni++]));
+  return out.join("");
+}
+function plainFinal(s) { return String(s || "").replace(/\*\*/g, "").replace(/```[a-z]*\s*/gi, ""); }
+// Heartbeat XML shown short: the instructions of a prompt, the decision and
+// message of an answer. The full text stays in the expanded view and drawer.
+function hbTag(s, tag) { const m = String(s || "").match(new RegExp("<" + tag + ">([\\s\\S]*?)(</" + tag + ">|$)")); return m ? m[1].trim() : ""; }
+function hbPrompt(s) { const i = hbTag(s, "instructions"); return /^\s*<heartbeat>/.test(s || "") && i ? "<heartbeat>…" + i : s; }
+function hbFinal(s) {
+  if (!/^\s*<heartbeat>/.test(s || "")) return s;
+  const d = hbTag(s, "decision"), m = hbTag(s, "message");
+  return m || d ? "<heartbeat> " + (d ? "<decision>" + d + "</decision> " : "") + m : s;
+}
+function previewFinal(s) { return plainFinal(hbFinal(s)).replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "$1"); }
+function firstSentence(s, n) {
+  const p = plainFinal(s).trim();
+  const m = p.match(/^[^。！？!?\n]*[。！？!?]?/);
+  const x = (m ? m[0] : p) || p;
+  return x.length > n ? x.slice(0, n) + "…" : x;
+}
+function finalLinks(s) {
+  const out = [];
+  for (const m of String(s || "").matchAll(/https?:\/\/[^\s)\]"'<>]+/g)) {
+    try { const u = new URL(m[0]); const k = u.host + u.pathname.replace(/\/$/, ""); if (!out.includes(k)) out.push(k); } catch (_) {}
+  }
+  return out;
+}
+function finalHTML(t) {
+  if (t.status === "running") return "";
+  if (t.status === "no_stop") return `<div class="final-box"><div class="final-h" style="cursor:default"><span class="caret">▶</span><strong>没有收到 Stop</strong><span class="muted" style="margin-left:auto;font-size:12px">这一轮可能被中断，或钩子没有收到结束事件</span></div></div>`;
+  const stop = (t.steps || []).find(s => s.type === "stop") || {};
+  const text = finalOpen ? plainFinal(t.final) : previewFinal(t.final);
+  if (!text) return `<div class="final-box"><div class="final-h" style="cursor:default"><span class="caret">▶</span><span class="step-time mono">${esc(hhmmss(stop.ts))}</span><strong>Agent 完成本轮</strong><span class="muted" style="margin-left:auto;font-size:12px">未记录最终回答</span></div></div>`;
+  const preview = text.length > 180 ? text.slice(0, 180) + "…" : text;
+  return `<div class="final-box"><div class="final-h" data-final="1"><span class="caret">${finalOpen ? "▼" : "▶"}</span><span class="step-time mono">${esc(hhmmss(stop.ts))}</span>
+    <strong>Agent 完成本轮</strong><span class="muted" style="margin-left:auto;font-size:12px">最终回答 · ${finalOpen ? "点击收起" : "点击展开全文"}</span></div>
+    <div class="final-preview"><div style="white-space:pre-wrap">${esc(finalOpen ? text : preview)}</div>${finalOpen && t.final_truncated ? `<div class="muted" style="margin-top:6px">（只存了前 ${esc(text.length)} 字，原文 ${esc(t.final_chars)} 字；可在 config.yaml 的 capture.final_message 调整）</div>` : ""}<div class="more" data-final="1">${finalOpen ? "收起" : "展开全文"}</div></div></div>`;
+}
+function compareHTML(t) {
+  const left = [];
+  (t.commentary || []).forEach(n => left.push(`过程说明：「${esc(n.text.length > 90 ? n.text.slice(0, 90) + "…" : n.text)}」`));
+  if (!(t.commentary || []).length) left.push(`<span class="muted">过程说明：未采集${t.has_previews ? "" : "（回执早于会话记录读取）"}</span>`);
+  if (t.final) left.push(`最终回答：${esc(firstSentence(t.final, 90))}`);
+  else left.push(`<span class="muted">最终回答：未记录</span>`);
+  const fl = finalLinks(t.final);
+  if (fl.length) left.push(`引用了 ${esc(fl.slice(0, 3).join("、"))}`);
+  const c = t.counts || {};
+  const missing = [];
+  const searches = (c.web || 0) + (c.mcp || 0);
+  if (searches) missing.push(`${searches} 次${c.web ? "搜索" : "MCP 调用"}的具体查询词与 MCP 参数`);
+  if (c.read_outside) missing.push(`读到了工作区以外的文件${c.read_outside > 1 ? "（" + c.read_outside + " 次）" : ""}`);
+  if (c.write_outside) missing.push(`写到了工作区以外（${c.write_outside} 次）`);
+  const nr = (t.risks || []).find(r => r.code === "no_rule_mcp");
+  if (nr) missing.push(`${nr.count} 次 MCP ${nr.count === searches ? "都" : ""}因「未命中规则」被放行`);
+  if (t.failed) missing.push(`${t.failed} 次执行失败的原始输出`);
+  if (t.denied) missing.push(`${t.denied} 次策略拒绝及命中的规则`);
+  missing.push("每一步的耗时、退出码、审计回执");
+  const tools = (t.steps || []).filter(s => s.type === "tool");
+  const acts = tools.slice(0, 8).map(st => {
+    let what;
+    const head = st.decision || st.result || {};
+    if (st.category === "web") what = st.query ? `搜索「${esc(st.query)}」` : `${head.kind === "web_fetch" ? "访问网页" : "搜索网页"} <span class="muted">（未记录查询词）</span>`;
+    else if (st.category === "mcp") what = `MCP <span class="mono">${esc(st.server)} / ${esc(st.tool_name)}</span>`;
+    else if (st.category === "read") what = (st.paths || []).length === 1 ? `读取 <span class="mono">${esc(tilde(shortPath(st.paths[0].path, 3)))}</span>` : `只读命令 <span class="mono">${esc(shortCmd(fullCmd(st), st))}</span>`;
+    else if (st.category === "write") what = `写入 <span class="mono">${esc(shortPath((st.paths[0] || {}).path || head.tool))}</span>`;
+    else if (st.category === "shell") what = `执行 <span class="mono">${esc(shortCmd(fullCmd(st), st))}</span>`;
+    else what = `<span class="mono">${esc(head.tool)}</span>`;
+    const meta = [(st.decision || {}).enforced_decision || "无决定"];
+    if (st.no_rule) meta.push("无规则");
+    if (st.outside) meta.push(`<strong style="color:var(--step);font-weight:650">项目外${st.category === "write" ? "写入" : st.category === "read" ? "读取" : "路径"}</strong>`);
+    if (st.failed) meta.push(`<strong style="color:var(--deny);font-weight:650">执行失败${st.fail_hint ? " " + esc(st.fail_hint) : ""}</strong>`);
+    if (st.denied) meta.push(`<strong style="color:var(--deny);font-weight:650">策略拒绝</strong>`);
+    if (st.duration_ms !== undefined && st.duration_ms !== null) meta.push(esc(dur(st.duration_ms)));
+    const rc = actOf(st.result).exit_code;
+    if (rc !== undefined && rc !== null) meta.push("退出码 " + esc(rc));
+    return `<div class="act"><span class="n">${st.index}</span><span class="t">${what}<br>${meta.join(" · ")}</span></div>`;
+  }).join("") + (tools.length > 8 ? `<div class="act muted">另有 ${tools.length - 8} 步，见下方时间线</div>` : "")
+    || `<div class="act muted">本轮没有工具调用</div>`;
+  const confirm = (t.one_liner || "").split(" · ").filter(x => /^未|拒绝$/.test(x)).join(" · ");
+  return `<div class="compare">
+    <div class="cmp left"><h3>${esc(agentName((detail.session || {}).client))} 界面里你看到的</h3><ul>${left.map(x => `<li>${x}</li>`).join("")}</ul>
+      <div class="missing"><div class="ml">未展示</div><ul>${missing.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div></div>
+    <div class="cmp right"><h3>ReinsAARM 看到的</h3>${acts}
+      <div class="missing"><div class="ml">另外确认</div><ul>${confirm ? `<li>${esc(confirm)}</li>` : ""}<li>审计回执 seq ${t.seq_from}–${t.seq_to}，链校验${chainText()}</li></ul></div></div>
+  </div>`;
+}
+function chainText() {
+  if (!chain) return "校验中";
+  return chain.ok ? "通过" : "未通过";
+}
+function ganttHTML(t) {
+  const t0 = new Date(t.start).getTime();
+  const t1 = t.status === "running" ? Date.now() : new Date(t.end || t.start).getTime();
+  const span = Math.max(1, t1 - t0);
+  const pos = ts => Math.min(100, Math.max(0, (new Date(ts).getTime() - t0) / span * 100));
+  const bars = [], ticks = [], legend = new Set();
+  for (const g of t.gaps || []) {
+    const l = pos(g.from), w = Math.max(0.3, pos(g.to) - l);
+    if (g.kind === "think") { bars.push(`<div class="gantt-bar think" style="left:${l}%;width:${w}%">${w > 18 ? `思考 ${esc(dur(g.ms))} · 钩子不可见` : ""}</div>`); legend.add("think"); }
+    else { bars.push(`<div class="gantt-bar compose" style="left:${l}%;width:${w}%">${w > 4 ? "作答" : ""}</div>`); legend.add("compose"); }
+  }
+  const short = {web: "搜", mcp: "MCP", read: "读", write: "写", shell: "命令", other: "其他"};
+  for (const st of (t.steps || []).filter(s => s.type === "tool")) {
+    const l = pos(st.ts);
+    const endTs = st.end_ts || (st.running ? new Date().toISOString() : st.ts);
+    const w = Math.max(0.35, pos(endTs) - l);
+    let cls = st.category === "web" || st.category === "mcp" ? "mcp" : "tool";
+    if (st.outside) cls = "read";
+    if (st.failed || st.denied) cls = "failbar";
+    if (st.running) cls += " live";
+    legend.add(cls.split(" ")[0]);
+    bars.push(`<div class="gantt-bar ${cls}" style="left:${l}%;width:${w}%" title="#${st.index} ${esc(st.label)} ${esc(dur(st.duration_ms))}"></div>`);
+    ticks.push({x: l + w / 2, label: `${short[st.category] || "?"} ${st.index}`});
+  }
+  const merged = [];
+  for (const tk of ticks.sort((a, b) => a.x - b.x)) {
+    const last = merged[merged.length - 1];
+    if (last && tk.x - last.x < 4) { last.label += " + " + tk.label; last.x = (last.x + tk.x) / 2; }
+    else merged.push({...tk});
+  }
+  const scaleTimes = [t.start];
+  const toolTs = (t.steps || []).filter(s => s.type === "tool").map(s => s.ts);
+  const pick = toolTs.length <= 3 ? toolTs : [toolTs[0], toolTs[Math.floor(toolTs.length / 2)], toolTs[toolTs.length - 1]];
+  pick.forEach(x => scaleTimes.push(x));
+  const scale = scaleTimes.map(ts => ({x: pos(ts), s: hhmmss(ts)}));
+  scale.push({x: 100, s: t.status === "running" ? "现在" : hhmmss(t.end)});
+  const kept = [];
+  for (const s of scale) { if (!kept.length || s.x - kept[kept.length - 1].x > 9 || s.x === 100) { if (s.x === 100 && kept.length && 100 - kept[kept.length - 1].x < 9) kept.pop(); kept.push(s); } }
+  const scaleHTML = kept.map((s, i) => `<span style="${i === kept.length - 1 ? "right:0" : i === 0 ? "left:0" : `left:${s.x}%;transform:translateX(-50%)`}" class="mono">${esc(s.s)}</span>`).join("");
+  const L = {think: ["#1C2128", "1px dashed #2A3038", "模型思考（未覆盖）"], mcp: ["#1A2838", "1px solid #2A3F55", "MCP 网页搜索 / 查找"], read: ["#2E250C", "1px solid #5A4A18", "项目外路径"], tool: ["#1A2420", "1px solid #243830", "命令 / 文件"], failbar: ["#3A1A1C", "1px solid #6A3034", "失败 / 拒绝"], compose: ["#1A1D23", "1px solid #2A3038", "组织最终回答"]};
+  const legendHTML = ["think", "mcp", "tool", "read", "failbar", "compose"].filter(k => legend.has(k)).map(k => `<span><i style="background:${L[k][0]};border:${L[k][1]}"></i>${L[k][2]}</span>`).join("");
+  return `<div class="gantt-wrap"><div class="gantt-title">时间轴 · ${esc(dur(span))}（${Math.round(span / 1000)} 秒）</div>
+    <div class="gantt"><div class="gantt-scale">${scaleHTML}</div><div class="gantt-track">${bars.join("")}</div>
+    <div class="gantt-ticks">${merged.map(tk => `<span style="left:${tk.x}%">${esc(tk.label)}</span>`).join("")}</div>
+    <div class="gantt-legend">${legendHTML}</div></div></div>`;
+}
+function ruleTarget(st) {
+  const tool = st.tool_name || "";
+  const m = tool.match(/^(.+?)(__|\.)/);
+  return {server: st.server || "", tool: m ? m[1] + m[2] + "*" : tool};
+}
+function ruleBtnLabel(st) { const r = ruleTarget(st); return `为 ${r.server} / ${r.tool} 新建规则`; }
+function actionsHTML(t) {
+  const key = (detail.session || {}).key || "";
+  const href = `/api/sessions/${encodeURIComponent(key)}/report?turn=${t.index}&format=md&tz=${encodeURIComponent(TZ)}`;
+  const nr = (t.steps || []).find(s => s.no_rule);
+  return `<div class="actions">
+    <a class="btn gold" href="${esc(href)}" download>导出本次任务报告</a>
+    <a class="btn ghost" style="font-size:12px" href="${esc(href.replace("format=md", "format=json"))}" download>JSON</a>
+    ${nr ? `<button class="btn" data-newrule="${nr.seq}">为这类 MCP 新建规则</button>` : ""}
+    <button class="btn" data-audit="${t.seq_from}-${t.seq_to}">查看审计回执</button>
+    <span class="audit" data-audit="${t.seq_from}-${t.seq_to}">审计回执 <span class="mono">seq ${t.seq_from}–${t.seq_to}</span> · 链校验 <span class="${chain && !chain.ok ? "bad" : "ok"}">${chainText()}</span></span>
+  </div>`;
+}
+function drawerStepHTML(t) {
+  const st = (t.steps || []).find(s => s.seq === drawerSeq);
+  if (!st) return "";
+  const d = st.decision || {};
+  const isMcp = (d.kind || (st.result || {}).kind) === "mcp";
+  const kindName = isMcp ? "MCP 调用" : {read: "读取", write: "写入", shell: "命令", web: "网页", other: "其他工具"}[st.category] || "工具";
+  const whyCls = st.denied ? "deny" : st.no_rule ? "" : "plain";
+  let whyBody = "";
+  if (st.no_rule) {
+    whyBody = "默认网络白名单只约束 shell 出网，拦不到这条 MCP 通道。";
+    if (!(st.hosts || []).length) whyBody += "<br>这次调用没有能对上白名单的目标主机。";
+  } else if (st.denied) whyBody = "这一步没有执行。";
+  else if (st.category === "read" && st.outside) whyBody = "写操作已有工作区限制，读路径目前没有边界规则，因此被静默放行。";
+  const r = st.result || {};
+  const recLine = `序号 <span class="mono" style="color:var(--text)">#${esc(d.seq || r.seq)}</span>${st.result && st.decision ? ` · 结果 <span class="mono">#${esc(r.seq)}</span>` : ""} · 本轮 seq ${t.seq_from}–${t.seq_to}<br>
+    哈希 <span class="mono">${esc(((d.receipt_hash || r.receipt_hash || "").replace("sha256:", "")).slice(0, 20))}…</span><br>链校验 <span class="${chain && !chain.ok ? "badtext" : "oktext"}">${chainText()}</span>`;
+  const action = isMcp ? `<div class="actions" style="margin-top:16px"><button class="btn gold" data-newrule="${st.seq}">${esc(ruleBtnLabel(st))}</button></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">将跳到策略页，预填服务名与工具通配。</div>`
+    : `<div class="actions" style="margin-top:16px"><button class="btn gold" data-simstep="${st.seq}">在策略页模拟这一步</button></div>
+      <div class="muted" style="font-size:12px;margin-top:8px">将跳到策略页的模拟执行，预填这一步的命令或路径。</div>`;
+  return `<aside class="sdrawer"><div class="drawer-h"><div><h2>步骤详情</h2>
+      <div class="muted" style="font-size:12px;margin-top:4px">${esc(kindName)} · 第 ${st.index} 次工具</div></div>
+      <button class="btn ghost" data-sdrawer-close="1">关闭</button></div>
+    <div class="dsec"><h3>工具</h3><div>${kindChip(st)} <span class="mono">${esc(st.tool_name || d.tool || r.tool)}</span></div>
+      ${st.server ? `<div class="muted" style="margin-top:4px;font-size:12px">服务 <span class="mono" style="color:var(--text)">${esc(st.server)}</span></div>` : ""}
+      ${d.cwd ? `<div class="muted" style="margin-top:4px;font-size:12px">工作目录 <span class="mono" style="color:var(--text)">${esc(d.cwd)}</span></div>` : ""}</div>
+    <div class="dsec"><h3>判定</h3><div>${decChip(st)} <span class="muted">· ${esc(hhmmss(st.ts))}${st.duration_ms !== undefined && st.duration_ms !== null ? " · 耗时 " + esc(dur(st.duration_ms)) : ""}</span>${st.failed ? ` <span class="chip fail">执行失败</span>` : ""}</div></div>
+    <div class="why ${whyCls}"><b>${st.denied ? "为什么拒绝" : "为什么放行"}：${whyAllowed(st)}</b>${whyBody}</div>
+    ${st.query ? `<div class="dsec"><h3>搜索词</h3><div class="mono">${esc(st.query)}</div></div>` : ""}
+    <div class="dsec"><h3>${d.kind === "shell" ? "命令（已打码）" : "参数（已打码）"}</h3>${d.kind === "shell" && fullCmd(st) ? `<pre class="code">${esc(fullCmd(st))}</pre>` : argsBlock(st)}</div>
+    ${(st.paths || []).length ? `<div class="dsec"><h3>路径</h3>${st.paths.map(pi => `<div class="mono" style="word-break:break-all">${esc(pi.path)}${pi.outside ? ` <span class="chip out">项目外</span>` : ""}</div>`).join("")}</div>` : ""}
+    <div class="dsec"><h3>结果摘要</h3>${resultBlock(st)}</div>
+    <div class="dsec"><h3>审计回执</h3><div class="receipt">${recLine}</div></div>
+    ${action}</aside>`;
+}
+function liveHTML(t) {
+  const lv = t.live;
+  const verb = lv ? ({web: "正在搜索网页…", mcp: "正在调用 MCP…", read: "正在读取…", write: "正在写入…", shell: "正在执行命令…"}[lv.category] || "正在调用工具…") : "Agent 正在思考…";
+  const since = lv ? `${esc(lv.tool_name || (lv.decision || {}).tool || "")} · 已开始 ${Math.max(0, Math.round((Date.now() - new Date(lv.ts).getTime()) / 1000))} 秒` : "钩子看不到思考过程";
+  const c = t.counts || {};
+  const running = (t.steps || []).filter(s => s.running);
+  const cat = running.length ? ({web: "网页搜索", mcp: "MCP", read: "读取", write: "写入", shell: "命令"}[running[0].category] || "工具") : "";
+  const elapsed = t.elapsed_ms || (Date.now() - new Date(t.start).getTime());
+  return `<div class="live-banner"><span class="spinner"></span><div><strong>${verb}</strong><span class="muted"> ${since}</span></div>
+      <span style="margin-left:auto" class="mono muted">已用时 ${esc(dur(Math.floor(elapsed / 1000) * 1000))}${t.stale ? " · 30 分钟无新事件" : ""}</span></div>
+    <div class="counts">
+      <div class="count"><div class="n">${t.prompt ? 1 : 0}</div><div class="l">用户提示</div></div>
+      <div class="count ${running.length ? "hot" : ""}"><div class="n ${running.length ? "oktext" : ""}">${running.length}</div><div class="l">工具进行中${cat ? " · " + cat : ""}</div></div>
+      <div class="count"><div class="n">${(c.read || 0) + (c.write || 0) + (c.shell || 0)}</div><div class="l">读取 / 写入 / 命令</div></div>
+      <div class="count"><div class="n">${(t.denied || 0) + (t.failed || 0)}</div><div class="l">拒绝 / 失败</div></div>
+    </div>`;
+}
+function promptBoxHTML(t, auto) {
+  if (!t.prompt) return `<div class="prompt-box"><div class="plabel">用户原话</div><div class="pbody small muted">这一轮没有记录到用户提示（可能在安装钩子之前开始）。</div></div>`;
+  let label;
+  if (auto) label = `heartbeat 指令 · ${t.prompt_truncated ? "摘要（已截断）" : t.prompt_chars + " 字"}`;
+  else if (t.prompt_truncated) label = `用户原话 · ${t.prompt_chars} 字 · 摘要（已截断，开启 record_full_prompts 可保留全文）`;
+  else label = `用户原话 · ${t.prompt_chars || t.prompt.length} 字${t.status === "running" ? "" : " · 原文保留"}`;
+  return `<div class="prompt-box"><div class="plabel">${esc(label)}</div><div class="pbody ${auto ? "small" : ""}">${esc(auto ? hbPrompt(t.prompt) : t.prompt)}</div></div>`;
+}
+function turnTabsHTML(turns, cur) {
+  if (turns.length < 2) return "";
+  const shown = turns.slice(-4);
+  const earlier = turns.slice(0, -4);
+  const tab = x => {
+    const fr = (x.risks || []).find(r => r.code === "fail" || r.code === "deny");
+    const name = x.source === "automation" ? (x.index === 1 ? "heartbeat 指令" : "heartbeat") : (x.title || "").slice(0, 16);
+    return `<button class="btn ${x.index === cur.index ? "on" : ""}" data-turn="${x.index}"><span class="${x.index === cur.index ? "" : "muted"}">任务 ${x.index}</span>&nbsp; ${esc(hhmm(x.start))} · ${esc(name)}${fr ? ` <span class="chip ${fr.code === "deny" ? "DENY" : "fail"}" style="margin-left:4px">${esc(fr.label)}</span>` : ""}</button>`;
+  };
+  return `<div class="turn-tabs">${earlier.length ? `<select data-turnsel="1"><option value="">更早 ${earlier.length} 轮…</option>${earlier.map(x => `<option value="${x.index}" ${x.index === cur.index ? "selected" : ""}>任务 ${x.index} · ${esc(startLabel(x.start))}</option>`).join("")}</select>` : ""}${shown.map(tab).join("")}</div>`;
 }
 function sessionDetailHTML() {
-  if (!detail) return `<section><p class="muted">加载中…</p></section>`;
-  if (detail.error) return `<section><h1>会话</h1><p class="badtext">${esc(detail.error)}</p><button class="btn" data-page-jump="sessions">返回列表</button></section>`;
+  if (!detail) return `<section class="rp"><p class="muted">加载中…</p></section>`;
+  if (detail.error) return `<section class="rp"><h1>会话</h1><p class="badtext">${esc(detail.error)}</p><button class="btn" data-page-jump="sessions">返回列表</button></section>`;
   const s = detail.session || {};
-  const items = (detail.items || []).map(tlHTML).join("") || `<p class="muted">这个会话没有记录。</p>`;
-  return `<section><div class="row-actions" style="margin:0 0 10px"><button class="btn" data-page-jump="sessions">← 会话列表</button></div>
-    <h1>${esc(agentName(s.client))} · ${esc(s.project || "未知项目")}</h1>
-    <p class="muted mono">${esc(s.cwd || "")} · 会话 ${esc(s.session_id)} · 开始 ${esc(whenFull(s.started))}</p>
-    <p class="muted">提示 ${s.prompts} · 工具调用 ${s.tools} · 拒绝 ${s.denied} · 失败 ${s.failed}</p>
-    <div class="timeline">${items}</div></section>`;
+  const turns = detail.turns || [];
+  const t = curTurn();
+  const head = `<div class="backrow"><button class="btn" data-page-jump="sessions">← 会话列表</button>
+      <span class="muted" style="font-size:12px">会话 / ${esc(agentName(s.client))} · ${esc(s.project || "未知项目")}${t ? " / 任务 " + t.index : ""}</span></div>
+    <div class="sess-h"><div><h1>${esc(agentName(s.client))} · ${esc(s.project || "未知项目")}</h1>
+      <p class="crumb mono">${esc(s.cwd || "")}${s.source_label && s.source !== "unknown" && s.source !== "automation" ? " · " + esc(s.source_label) : ""} · 会话 ${esc(s.session_id)}${s.model ? " · " + esc(s.model) : ""} · 开始 ${esc(startLabel(s.started))}</p></div>
+      ${statusChip(t && t.status === "running" ? "running" : s.status)}</div>`;
+  if (!t) return `<section class="rp">${head}<p class="muted">这个会话没有记录。</p></section>`;
+  const tools = turns.reduce((n, x) => n + ((x.counts || {}).tools || 0), 0);
+  let note = "";
+  if (s.status !== "ended") note = turns.length > 1 ? `本会话共 ${turns.length} 轮任务、${tools} 次工具调用。对话仍开着，尚无 SessionEnd。` : (t.status === "done" ? "对话仍开着，尚无 SessionEnd。Stop 之后按「本轮结束」显示，避免列表一直像还在跑。" : "");
+  const auto = t.source === "automation";
+  const running = t.status === "running";
+  const meta = `<div class="task-meta"><span>任务 ${t.index} / ${turns.length}</span>
+      ${auto || running ? srcChip(t.source, t.source_label, auto) : ""}
+      <span class="mono">${esc(hhmmss(t.start))} →${running ? "" : " " + esc(hhmmss(t.end))}</span>
+      <span class="dur">${running ? "进行中" : esc(dur(t.duration_ms))}</span>
+      ${running ? "" : (t.risks || []).map(r => riskChip(r, true)).join("")}</div>`;
+  const autoBox = auto ? `<div class="cover-box"><b>说明</b><ul>
+      <li>· 本轮是自动化任务（${esc(t.source_why || "")}），不是用户在对话框里手工下发的指令，需与人手任务分开看。</li>
+      ${t.failed && !t.denied ? `<li>· 策略判定为 ALLOW，失败来自${(t.counts || {}).shell_failed ? "脚本 / 命令" : "工具"}本身，不应计成「拒绝」。</li>` : ""}</ul></div>` : "";
+  const cover = `<div class="cover-box"><b>未覆盖 · 不把没看到当成没发生</b><ul>${(t.coverage || []).map(c => `<li>· ${esc(c)}</li>`).join("")}</ul></div>`;
+  const untrusted = t.untrusted ? `<div class="untrusted-note" style="margin-top:0">不可信输入：本轮共 ${t.untrusted} 次网页 / MCP 结果回灌模型。${t.sensitive_after ? `<strong>之后出现 ${t.sensitive_after} 次敏感操作</strong>，已在对应步骤标出。` : `<strong>之后${running ? "尚未" : "未"}出现敏感操作</strong>（无写文件、无改动命令、无 shell 出网）。`}</div>` : "";
+  let card;
+  if (running) {
+    card = `<div class="task live-task">${meta}${promptBoxHTML(t, auto)}
+      <div class="steps">${stepsHTML(t)}</div>
+      <div class="cover-box" style="margin-top:12px"><b>实时说明</b> 新的工具调用会追加到这条时间线。Stop 到达后，本卡切换为「本轮结束」，并补上结果、风险标签和最终回答。</div></div>`;
+  } else {
+    card = `<div class="task ${t.failed || t.denied ? "danger-task" : ""}">${meta}${promptBoxHTML(t, auto)}
+      <div class="summary"><strong>本轮实际动作：</strong>${esc(t.one_liner)}</div>
+      ${auto ? "" : compareHTML(t) + ganttHTML(t)}
+      <div class="steps">${stepsHTML(t)}${untrusted}${finalHTML(t)}</div>
+      ${autoBox}${cover}${actionsHTML(t)}</div>`;
+  }
+  return `<section class="rp">${head}${note ? `<p class="muted" style="font-size:12px;margin-top:6px">${esc(note)}</p>` : ""}
+    ${running ? liveHTML(t) : ""}${turnTabsHTML(turns, t)}${card}${drawerSeq ? drawerStepHTML(t) : ""}</section>`;
 }
+async function loadChain(force) {
+  if (!force && chain && Date.now() - chainAt < 15000) return;
+  try { chain = await api("/api/audit/verify", {method: "POST"}); chainAt = Date.now(); } catch (_) { chain = {ok: false}; }
+}
+function bindReplay() {
+  document.querySelectorAll("[data-sagent]").forEach(b => b.onclick = () => { sessionAgent = b.dataset.sagent; render(); });
+  document.querySelectorAll("[data-srisky]").forEach(b => b.onclick = () => { sessRisky = !sessRisky; render(); });
+  document.querySelectorAll("[data-srange]").forEach(b => b.onclick = () => { sessRange = b.dataset.srange; render(); });
+  document.querySelectorAll("[data-session]").forEach(tr => tr.onclick = () => {
+    openId = tr.dataset.session; turnSel = 0; openSteps = {}; drawerSeq = 0; finalOpen = false;
+    location.hash = "#/sessions/" + openId; detail = null; refresh();
+  });
+  document.querySelectorAll("[data-step]").forEach(h => h.onclick = () => {
+    const seq = Number(h.dataset.step);
+    const t = curTurn(); const st = t && t.steps.find(x => x.seq === seq);
+    if (!st) return;
+    if (drawerSeq === seq) { drawerSeq = 0; openSteps[seq] = true; }
+    else openSteps[seq] = !isOpen(st, t);
+    render();
+  });
+  document.querySelectorAll("[data-sdrawer]").forEach(a => a.onclick = (ev) => { ev.stopPropagation(); drawerSeq = Number(a.dataset.sdrawer); openSteps[drawerSeq] = true; render(); });
+  document.querySelectorAll("[data-sdrawer-close]").forEach(a => a.onclick = () => { drawerSeq = 0; render(); });
+  document.querySelectorAll("[data-final]").forEach(a => a.onclick = (ev) => { ev.stopPropagation(); finalOpen = !finalOpen; render(); });
+  document.querySelectorAll("[data-turn]").forEach(b => b.onclick = () => { setTurn(Number(b.dataset.turn)); });
+  document.querySelectorAll("[data-turnsel]").forEach(sel => sel.onchange = () => { if (sel.value) setTurn(Number(sel.value)); });
+  document.querySelectorAll("[data-audit]").forEach(b => b.onclick = () => { location.hash = "#/audit/" + b.dataset.audit; });
+  document.querySelectorAll("[data-newrule]").forEach(b => b.onclick = () => {
+    const t = curTurn(); const st = t && t.steps.find(x => x.seq === Number(b.dataset.newrule));
+    if (!st) return;
+    const r = ruleTarget(st);
+    sim = {kind: "mcp", agent: (detail.session || {}).client || "", main: "", server: st.server || "", tool: st.tool_name || "", args: actOf(st.decision).args_preview || "", result: null, error: ""};
+    newRule = {server: r.server, tool: r.tool, decision: "STEP_UP", reason: "需要人工确认的 MCP 调用"};
+    location.hash = "#/policy/new-mcp-rule";
+  });
+  document.querySelectorAll("[data-simstep]").forEach(b => b.onclick = () => {
+    const t = curTurn(); const st = t && t.steps.find(x => x.seq === Number(b.dataset.simstep));
+    if (!st) return;
+    const d = st.decision || st.result || {};
+    const kind = d.kind === "shell" ? "shell" : (["file_read", "file_write", "file_edit", "web_fetch"].includes(d.kind) ? d.kind : "shell");
+    sim = {kind, agent: (detail.session || {}).client || "", main: kind === "shell" ? fullCmd(st) : ((st.paths[0] || {}).path || ""), server: "", tool: "", args: "", result: null, error: ""};
+    newRule = null;
+    location.hash = "#/policy/sim";
+  });
+}
+function setTurn(i) {
+  turnSel = i; openSteps = {}; drawerSeq = 0; finalOpen = false;
+  location.hash = "#/sessions/" + openId + "/" + i;
+}
+
 function card(g) {
   return `<div class="card"><div class="mono">${esc(g.id)}</div>
     <div class="mono" style="margin:6px 0">${esc(g.command || g.tool)}</div>
@@ -355,15 +1105,52 @@ function drawerHTML(g) {
       <button class="btn ghost" id="close-drawer">取消</button>
     </div></div>`;
 }
+const EVENT_NAMES = {"session.start": "会话开始", "session.end": "会话结束", "prompt.submit": "用户提示", "tool.result": "工具结果", "agent.stop": "Agent 完成本轮", "action.decision": "执行前决定"};
 function auditHTML() {
+  const m = /^(\d+)-(\d+)$/.exec(openId);
   const items = receipts.map(r => `<div class="tl">
-    <div><span class="mono">#${r.seq}</span> ${kindTag(r)}${esc(what(r))} ${chips(r)}</div>
+    <div><span class="mono">#${r.seq}</span> ${m ? `<span class="muted">${esc(EVENT_NAMES[r.event_type] || r.event_type)}</span> ` : ""}${kindTag(r)}${esc(what(r))} ${chips(r)}${r.ref_seq ? ` <span class="muted mono">→ #${r.ref_seq}</span>` : ""}</div>
     <div class="muted">${esc(r.reason || r.event_type || "")}</div>
-    <div class="mono muted">${esc((r.receipt_hash || "").slice(0, 22))}</div>
-  </div>`).join("") || `<p class="muted">审计链是空的。</p>`;
-  return `<section><h1>审计链</h1>
+    <div class="mono muted">${esc((r.receipt_hash || "").slice(0, 22))} · ${esc(whenFull(r.ts))}</div>
+  </div>`).join("") || `<p class="muted">${m ? "这个范围里没有回执。" : "审计链是空的。"}</p>`;
+  const range = m ? `<div class="card audit-range">本轮回执 <span class="mono">seq ${m[1]}–${m[2]}</span>，共 ${receipts.length} 条（含会话、提示、结果事件）。整条链校验：
+      <span class="${chain && chain.ok ? "oktext" : "badtext"}">${chain ? (chain.ok ? "通过，" + chain.count + " 条" : "未通过 " + esc(chain.error || "")) : "校验中"}</span>
+      <button class="btn ghost" data-page-jump="audit" style="margin-left:8px">显示全部</button></div>` : "";
+  return `<section><h1>审计链</h1>${range}
     <div class="row-actions"><button class="btn gold" id="verify">校验整条链</button><span id="verify-out" class="muted"></span></div>
     <div class="timeline">${items}</div></section>`;
+}
+function ruleYAML(r) {
+  const id = "mcp-" + (r.server || "any").replace(/[^a-z0-9]+/gi, "-").toLowerCase() + "-" + (r.tool || "any").replace(/\*/g, "all").replace(/[^a-z0-9]+/gi, "-").replace(/-+$/, "").toLowerCase();
+  return `spec:\n  mcp:\n    rules:\n      - id: ${id}\n        server: ${r.server || '"*"'}\n        tool: "${r.tool || "*"}"\n        decision: ${r.decision}\n        reason: ${JSON.stringify(r.reason || "")}`;
+}
+function newRuleHTML() {
+  if (!newRule) newRule = {server: "", tool: "", decision: "STEP_UP", reason: ""};
+  const r = newRule;
+  const opt = v => `<option value="${v}" ${r.decision === v ? "selected" : ""}>${v}</option>`;
+  return `<div class="card policy-new" id="newrule"><h2>新建 MCP 规则</h2>
+    <p class="muted">按服务名和工具名（支持 * 通配）匹配 MCP 调用。已从任务回放预填。</p>
+    <div class="simgrid">
+      <input class="field mono" id="nr-server" value="${esc(r.server)}" placeholder="server，例如 codex_apps">
+      <input class="field mono" id="nr-tool" value="${esc(r.tool)}" placeholder="tool，例如 search_service__*">
+      <select class="field" id="nr-decision">${["ALLOW", "STEP_UP", "DENY"].map(opt).join("")}</select>
+    </div>
+    <input class="field" id="nr-reason" value="${esc(r.reason)}" placeholder="原因（写进回执）">
+    <p class="muted" style="margin:10px 0 6px">把下面这段并入 profile.yaml 的 <span class="mono">spec.mcp.rules</span>（已有 rules 时只追加 <span class="mono">- id:</span> 那一项）。sidecar 发现文件变化会自动重新加载；控制台不直接改策略文件。</p>
+    <pre class="yaml mono" id="nr-yaml">${esc(ruleYAML(r))}</pre>
+    <div class="row-actions"><button class="btn gold" id="nr-copy">复制 YAML</button><button class="btn" id="nr-sim">用模拟执行测试当前策略</button><span class="muted" id="nr-note"></span></div></div>`;
+}
+function bindNewRule() {
+  const box = $("#newrule");
+  if (!box) return;
+  const upd = () => {
+    newRule = {server: $("#nr-server").value.trim(), tool: $("#nr-tool").value.trim(), decision: $("#nr-decision").value, reason: $("#nr-reason").value};
+    $("#nr-yaml").textContent = ruleYAML(newRule);
+  };
+  ["#nr-server", "#nr-tool", "#nr-reason"].forEach(id => $(id).oninput = upd);
+  $("#nr-decision").onchange = upd;
+  $("#nr-copy").onclick = async () => { try { await navigator.clipboard.writeText(ruleYAML(newRule)); $("#nr-note").textContent = "已复制"; } catch (_) { $("#nr-note").textContent = "复制失败，请手动选中"; } };
+  $("#nr-sim").onclick = () => { sim.kind = "mcp"; if (!sim.server) sim.server = newRule.server; if (!sim.tool) sim.tool = newRule.tool.replace(/\*$/, ""); redrawSim(); runSim(); };
 }
 async function loadPolicy() {
   const p = await api("/api/policy");
@@ -483,10 +1270,7 @@ async function loadHealth() {
 function bind() {
   document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { filter = b.dataset.filter; refresh(); });
   document.querySelectorAll("[data-page-jump]").forEach(b => b.onclick = () => go(b.dataset.pageJump));
-  document.querySelectorAll("[data-sagent]").forEach(b => b.onclick = () => { sessionAgent = b.dataset.sagent; render(); });
-  document.querySelectorAll("[data-session]").forEach(tr => tr.onclick = () => {
-    openId = tr.dataset.session; location.hash = "#/sessions/" + openId; detail = null; refresh();
-  });
+  bindReplay();
   document.querySelectorAll("[data-act]").forEach(b => b.onclick = async (ev) => {
     ev.stopPropagation();
     await api("/api/approvals/" + b.dataset.id + "/" + b.dataset.act, {method:"POST"});
