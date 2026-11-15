@@ -31,6 +31,9 @@ console also pairs by `tool_use_id`, so pairing survives a sidecar restart.
 The new fields are omitted when empty: receipts written by older versions
 still verify (`internal/ledger/testdata/pre-activity.jsonl` is checked in a
 test), and new receipts chain onto old ones.
+Not the other way round: a binary from before this change reports
+`receipt_hash mismatch` on a chain that already holds activity receipts, so
+do not roll the binary back on a state directory that has recorded them.
 
 ### Full prompts
 
