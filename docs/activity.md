@@ -115,13 +115,37 @@ still verify and still render; missing fields show as "未记录" / "未采集")
 | `activity.result_links` | `tool.result` | Up to 8 `{url,title}` from web / search results ("Title (url)" or bare URLs). Query string, fragment and user:password are removed. |
 | `activity.message_chars` | `agent.stop` | Length of the whole final answer. |
 | `activity.commentary` | `agent.stop` | Codex only: up to 12 progress notes (`phase: commentary`) of this turn, ≤300 chars each. |
+| `activity.thinking` | `tool.result`, `agent.stop` | Plaintext thinking from the session file, up to 24 notes, ≤4000 chars each, masked. See *Thinking* below. |
 | `activity.trigger`, `activity.originator` | `prompt.submit`, `agent.stop` | Codex only: `turn_attribution.turn_trigger` (composer / exec / `automation_heartbeat_scheduled`) and `session_meta.originator` (Codex Desktop / codex_exec). |
 
-Commentary, trigger and originator come from the Codex rollout transcript
-(`transcript_path` in the hook payload). It is read only when the path is
-absolute, ends in `.jsonl`, is a regular file and lies under
-`developer_home`; only the first 64 KB and the last 4 MB (Stop) / 1 MB
-(prompt) are read, so a 200 MB rollout costs little.
+Commentary, trigger, originator, and thinking come from the agent's own
+session file (`transcript_path` in the hook payload). It is read only when
+the path is absolute, ends in `.jsonl`, is a regular file and lies under
+`developer_home`; only the first 64 KB and the last 4 MB (Stop and tool
+results) / 1 MB (prompt) are read, so a 200 MB rollout costs little.
+
+### Thinking (思考过程)
+
+Hooks do not carry the model's reasoning. ReinsAARM reads plaintext the
+client already wrote into its session file, and only that. Nothing is
+inferred or decrypted.
+
+| Client | Where the text comes from | What is not shown |
+|---|---|---|
+| Codex | Rollout `event_msg` `agent_reasoning` (the reasoning summary) and `agent_reasoning_raw_content` when Codex stored it; `response_item` `type: reasoning` summary text and plaintext `reasoning_text` / `text` content. A repeated summary, or a short snapshot followed by the full text, is stored once. | `encrypted_content`. Streaming `reasoning_content_delta` / `reasoning_raw_content_delta` fragments (the completed item is the record). |
+| WorkBuddy, Claude Code, CodeBuddy | Session JSONL assistant content blocks `type: thinking` (or `reasoning`) with a `thinking` or `text` field. The notes kept are those after the latest real user prompt, which is the turn the hook is firing for. A tool result does not start a new turn. | `redacted_thinking` (ciphertext only). |
+| Gemini CLI | Not captured. `BeforeAgent` / `AfterAgent` do not include a thinking field, and the hook payload has no transcript path this reader understands. | The whole thinking trace. |
+
+The summary Codex records is labeled as a 推理摘要 in the console. It is the
+text Codex wrote down, not a reconstruction of an encrypted chain of thought.
+If a turn's file has no plaintext, the 未覆盖 box says so.
+
+Thinking is read on `PostToolUse` / `AfterTool` and again on `Stop`, so a
+note shows up once the next hook runs, placed by its session-file timestamp
+between the prompt and the tools. The same note is not written twice. A
+sidecar restart can write it again; the console still shows it once. There
+is no hook while the model is thinking and has not yet called a tool or
+stopped, so that interval stays empty until the next recorded event.
 
 Limits, in `config.yaml` of the state directory (restart `reinsaarm run`):
 
@@ -132,7 +156,7 @@ capture:
   output_preview: 800
   final_message: 2000
   result_links: true
-  transcript: true    # Codex transcript: commentary, trigger, originator
+  transcript: true    # session file: commentary, trigger, originator, thinking
 ```
 
 ### Turns
@@ -146,9 +170,13 @@ session shows "30 分钟无活动".
 
 Steps get a category: `web` (web_fetch, or MCP tools named search / web /
 fetch / browse …), `mcp`, `read` (file_read or a read-only shell command such
-as `cat`, `ls`, `rg`), `write`, `shell`, `other`. Gaps of 20 s or more without
-hook events are shown as model thinking (between steps) or composing the
-answer (last step → Stop); `?gap=N` changes the threshold.
+as `cat`, `ls`, `rg`), `write`, `shell`, `other`. A recorded thinking note is
+its own step, labeled 思考过程, in time order with the prompt and the tools.
+Long text stays collapsed until opened. Gaps of 20 s or more without hook
+events are still shown as time with no hook (`?gap=N` changes the threshold).
+When a thinking note falls in that gap, the timeline shows the note and does
+not call the gap invisible. A gap with no note still says the thinking text
+was not recorded.
 
 Source: `automation` (trigger `automation*` or a `<heartbeat>` prompt),
 `desktop` / `cli` / `ide` from the originator (and Codex `turn_trigger=exec`),
@@ -157,7 +185,7 @@ no originator, so the console uses the workspace path (a dated `WorkBuddy AI/`
 task folder or a `/~:` virtual project path means desktop) or a placeholder
 model (`default-model`, seen on CLI `-p`) and otherwise `unknown`. It does not
 label every WorkBuddy session as desktop. Timeline steps are shown as session
-start → prompt → tools → stop even when `UserPromptSubmit` was written (and
+start → prompt → thinking and tools (by timestamp) → stop even when `UserPromptSubmit` was written (and
 sometimes timestamped) before `SessionStart`; receipt `seq` is unchanged.
 
 ### Risk flags
@@ -186,7 +214,9 @@ While the console is bound only to loopback, a request from a loopback address (
   `counts`, `denied`, `failed`, `one_liner`, `risks`, `gaps`, `think_ms`,
   `seq_from`, `seq_to`, `untrusted`, `sensitive_after`, `has_previews`,
   `coverage` (what the hooks cannot see), `steps`, `live`, `elapsed_ms`.
-  A step is a timeline item plus `index`, `category`, `label`, `server`,
+  A step is a timeline item plus `index`, `category`, `label`. A thinking
+  step (`type: think`) has `thinking`, `think_kind` (`summary`, `raw`, or
+  `thinking`), and `think_cut`. A tool step also has `server`,
   `tool_name`, `query`, `paths[{path,outside}]`, `hosts`, `links`, `no_rule`,
   `denied`, `failed`, `fail_source`, `fail_hint`, `credential`, `untrusted`,
   `sensitive`, `after_untrusted`, `running`, `duration_ms`.
@@ -205,7 +235,9 @@ task with the prompt, a one-line summary, a "Agent 说了什么 / ReinsAARM 看�
 strip (left: derived from the final answer and commentary), a time bar,
 the steps (expanded when running, failed, denied, outside the project, after
 untrusted input, or the first web result), the final answer, a 未覆盖 box,
-and export. Click a step for the side drawer with the full receipt. Deep
+and export. A 思考过程 step is a dashed card; the text stays collapsed until
+it is opened, and secrets are masked the same way as other event text. Click
+a tool step for the side drawer with the full receipt. Deep
 links: `#/sessions/<key>/<turn>/<seq>`, `#/audit/<from>-<to>`,
 `#/policy/new-mcp-rule` (from "为这类 MCP 新建规则": a YAML snippet to copy that
 can simulate it; it never writes the profile).

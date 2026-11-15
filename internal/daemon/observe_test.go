@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,53 @@ func observe(t *testing.T, socket, client string, payload map[string]any) hooks.
 		t.Fatal(err)
 	}
 	return resp
+}
+
+func TestObserveThinkingDedup(t *testing.T) {
+	home := t.TempDir()
+	dir := filepath.Join(home, "sessions")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "rollout.jsonl")
+	body := `{"timestamp":"2026-11-15T13:00:00Z","type":"event_msg","payload":{"type":"task_started","turn_id":"T1","turn_attribution":{"turn_id":"T1","turn_trigger":"composer"}}}
+{"timestamp":"2026-11-15T13:00:02Z","type":"event_msg","payload":{"type":"agent_reasoning","text":"Look at the synthetic test, token=sk-proj-AbCdEfGhIjKlMnOpQrStUvWx123456"}}
+`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv := startServer(t, func(cfg *Config) {
+		cfg.Home = home
+		cfg.Transcript = true
+	})
+	sess := "sess-think"
+	post := map[string]any{"session_id": sess, "cwd": "/proj", "hook_event_name": "PostToolUse", "tool_name": "Read",
+		"tool_input": map[string]any{"file_path": "a.go"}, "tool_use_id": "c1", "tool_response": "package p",
+		"turn_id": "T1", "transcript_path": path}
+	observe(t, srv.cfg.Socket, "codex", post)
+	observe(t, srv.cfg.Socket, "codex", post)
+	stop := map[string]any{"session_id": sess, "cwd": "/proj", "hook_event_name": "Stop", "turn_id": "T1",
+		"transcript_path": path, "last_assistant_message": "done"}
+	observe(t, srv.cfg.Socket, "codex", stop)
+	recs, err := ledger.Tail(srv.cfg.AuditPath, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored int
+	for _, r := range recs {
+		if r.Activity == nil {
+			continue
+		}
+		stored += len(r.Activity.Thinking)
+		for _, n := range r.Activity.Thinking {
+			if strings.Contains(n.Text, "sk-proj") {
+				t.Fatalf("secret stored: %s", n.Text)
+			}
+		}
+	}
+	if stored != 1 {
+		t.Fatalf("thinking notes stored %d times, receipts %d", stored, len(recs))
+	}
 }
 
 func TestObserveSessionTimeline(t *testing.T) {

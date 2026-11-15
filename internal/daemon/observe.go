@@ -79,6 +79,9 @@ func (s *Server) Observe(req hooks.Request) hooks.Response {
 		}
 	}
 	rec.Activity = activity.BuildFor(req.Client, req.Event, rec.Kind, payload, paths, s.activityOptions())
+	if rec.Activity != nil && len(rec.Activity.Thinking) > 0 {
+		rec.Activity.Thinking = s.takeNewThinking(req.Client, req.SessionID, req.TurnID, rec.Activity.Thinking)
+	}
 	if evType == activity.TypeToolResult {
 		if ref, ok := s.takeCall(callKey(req.Client, req.SessionID, req.ToolUseID, rec.ActionDigest)); ok {
 			rec.RefSeq = ref.Seq
@@ -154,6 +157,37 @@ func (s *Server) rememberCall(key string, seq uint64) {
 		delete(s.calls, s.callOrder[0])
 		s.callOrder = s.callOrder[1:]
 	}
+}
+
+const maxThinkSessions = 256
+
+func (s *Server) takeNewThinking(client, session, turn string, notes []ledger.Note) []ledger.Note {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.thinkSeen == nil {
+		s.thinkSeen = map[string]map[string]struct{}{}
+	}
+	key := client + "\x00" + session + "\x00" + turn
+	set := s.thinkSeen[key]
+	if set == nil {
+		set = map[string]struct{}{}
+		s.thinkSeen[key] = set
+		s.thinkOrder = append(s.thinkOrder, key)
+	}
+	var out []ledger.Note
+	for _, n := range notes {
+		fp := n.Kind + "\x00" + n.TS + "\x00" + n.Text
+		if _, ok := set[fp]; ok {
+			continue
+		}
+		set[fp] = struct{}{}
+		out = append(out, n)
+	}
+	for len(s.thinkOrder) > maxThinkSessions {
+		delete(s.thinkSeen, s.thinkOrder[0])
+		s.thinkOrder = s.thinkOrder[1:]
+	}
+	return out
 }
 
 func (s *Server) takeCall(key string) (callRef, bool) {

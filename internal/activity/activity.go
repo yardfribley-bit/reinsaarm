@@ -141,7 +141,7 @@ func BuildFor(client, hook, kind string, payload map[string]any, paths []string,
 		a.Message = clipLines(msg, opt.messageLimit(), a)
 		if opt.Transcript {
 			t := ReadTranscript(str(payload, "transcript_path"), opt.Home, str(payload, "turn_id"), true)
-			a.Trigger, a.Originator, a.Commentary = t.Trigger, t.Originator, t.Commentary
+			a.Trigger, a.Originator, a.Commentary, a.Thinking = t.Trigger, t.Originator, t.Commentary, t.Thinking
 		}
 	case "PostToolUse", "PostToolUseFailure", "AfterTool":
 		toolResult(client, hook, payload, a, opt.outputLimit())
@@ -149,6 +149,13 @@ func BuildFor(client, hook, kind string, payload map[string]any, paths []string,
 			a.ResultLinks = ResultLinks(responseText(payload))
 		}
 		a.Files = mergeFiles(paths, responseFiles(payload["tool_response"]))
+		// Thinking is usually already in the transcript by the time the tool
+		// returns. Stop reads the same file again for anything written after
+		// the last tool. The sidecar drops notes it has already stored.
+		if opt.Transcript {
+			t := ReadTranscript(str(payload, "transcript_path"), opt.Home, str(payload, "turn_id"), true)
+			a.Thinking = t.Thinking
+		}
 	}
 	return a
 }

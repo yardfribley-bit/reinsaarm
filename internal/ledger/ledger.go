@@ -104,6 +104,11 @@ type Activity struct {
 	// Commentary holds the agent's progress messages for the turn, read from
 	// the agent's own transcript when it has one (Codex rollout files).
 	Commentary []Note `json:"commentary,omitempty"`
+	// Thinking is plaintext reasoning the agent wrote into its own session
+	// file (Codex reasoning summary or raw text, or a Claude-style thinking
+	// block). Omitted when the client did not record any. Encrypted
+	// reasoning blobs are not stored.
+	Thinking []Note `json:"thinking,omitempty"`
 	// Trigger is what started the turn (Codex turn_trigger: composer, exec,
 	// automation_heartbeat_scheduled, ...). Originator is the agent front end
 	// (Codex session_meta.originator: "Codex Desktop", "codex_exec", ...).
@@ -118,9 +123,13 @@ type Link struct {
 }
 
 // Note is one agent message with its time.
+// Kind and Cut are set on thinking notes only (summary, raw, thinking).
+// Commentary notes leave them empty, so older receipts still verify.
 type Note struct {
 	TS   string `json:"ts,omitempty"`
 	Text string `json:"text"`
+	Kind string `json:"kind,omitempty"`
+	Cut  bool   `json:"cut,omitempty"`
 }
 
 // Resources lists the paths, hosts, git operations, and MCP server/tool of one

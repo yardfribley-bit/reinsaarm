@@ -52,6 +52,12 @@ type Step struct {
 	// Links are the result's URLs: result_links when captured, else found in
 	// the stored output (receipts written before link capture).
 	Links []ledger.Link `json:"links,omitempty"`
+	// Thinking is plaintext reasoning recorded by the agent. ThinkKind is
+	// summary (Codex reasoning summary), raw (Codex plaintext reasoning),
+	// or thinking (Claude-style thinking block).
+	Thinking  string `json:"thinking,omitempty"`
+	ThinkKind string `json:"think_kind,omitempty"`
+	ThinkCut  bool   `json:"think_cut,omitempty"`
 	// Running is a call with a decision and no result yet in a running turn.
 	Running    bool   `json:"running,omitempty"`
 	EndTS      string `json:"end_ts,omitempty"`
@@ -73,6 +79,9 @@ type Gap struct {
 	MS   int64  `json:"ms"`
 	// BeforeSeq is the seq of the step that follows the gap (0: Stop or now).
 	BeforeSeq uint64 `json:"before_seq,omitempty"`
+	// Recorded is set when a thinking note from the session file falls in
+	// this gap, so the timeline can show that text instead of "钩子不可见".
+	Recorded bool `json:"recorded,omitempty"`
 }
 
 // Risk is one flag on a turn or session.
@@ -513,6 +522,7 @@ func fillTurn(t *Turn, its []TimelineItem, mayRun bool, sessCWD string, o replay
 	if t.Status == "running" && t.ElapsedMS > 0 {
 		t.DurationMS = t.ElapsedMS
 	}
+	appendThinking(t, its)
 	t.Source, t.SourceLabel, t.SourceWhy = turnSource(t, clientOf(its))
 	t.Title = turnTitle(t.Prompt, t.Source == "automation")
 	t.OneLiner = oneLiner(t, mcpTools, failHints)
@@ -521,6 +531,75 @@ func fillTurn(t *Turn, its []TimelineItem, mayRun bool, sessCWD string, o replay
 	for _, c := range order {
 		if r := risks[c]; r != nil {
 			t.Risks = append(t.Risks, *r)
+		}
+	}
+}
+
+// appendThinking turns transcript notes on any receipt in the turn into
+// timeline steps, in time order with the prompt and the tools. The same
+// note stored on a tool result and again on Stop is shown once.
+func appendThinking(t *Turn, its []TimelineItem) {
+	var notes []ledger.Note
+	seen := map[string]bool{}
+	consider := func(r *ledger.Receipt) {
+		if r == nil || r.Activity == nil {
+			return
+		}
+		for _, n := range r.Activity.Thinking {
+			text := strings.TrimSpace(redact.Mask(n.Text))
+			if text == "" {
+				continue
+			}
+			fp := n.Kind + "\x00" + n.TS + "\x00" + text
+			if seen[fp] {
+				continue
+			}
+			seen[fp] = true
+			notes = append(notes, ledger.Note{TS: n.TS, Text: text, Kind: n.Kind, Cut: n.Cut})
+		}
+	}
+	for _, it := range its {
+		consider(it.Decision)
+		consider(it.Result)
+		consider(it.Event)
+	}
+	for _, n := range notes {
+		t.Steps = append(t.Steps, Step{
+			TimelineItem: TimelineItem{Type: "think", TS: n.TS},
+			Category:     "think",
+			Label:        "思考过程",
+			Thinking:     n.Text,
+			ThinkKind:    n.Kind,
+			ThinkCut:     n.Cut,
+		})
+	}
+	if len(notes) > 0 {
+		sort.SliceStable(t.Steps, func(a, b int) bool {
+			ra, rb := stepRank(t.Steps[a].Type), stepRank(t.Steps[b].Type)
+			if ra != rb {
+				return ra < rb
+			}
+			ta, tb := parseTS(t.Steps[a].TS), parseTS(t.Steps[b].TS)
+			if !ta.IsZero() && !tb.IsZero() && !ta.Equal(tb) {
+				return ta.Before(tb)
+			}
+			return t.Steps[a].Seq < t.Steps[b].Seq
+		})
+	}
+	for i := range t.Gaps {
+		from, to := parseTS(t.Gaps[i].From), parseTS(t.Gaps[i].To)
+		if from.IsZero() || to.IsZero() {
+			continue
+		}
+		for _, st := range t.Steps {
+			if st.Type != "think" {
+				continue
+			}
+			ts := parseTS(st.TS)
+			if !ts.Before(from) && !ts.After(to) {
+				t.Gaps[i].Recorded = true
+				break
+			}
 		}
 	}
 }

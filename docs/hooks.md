@@ -71,6 +71,8 @@ See [workbuddy.md](workbuddy.md). Short version: the CodeBuddy IDE settings hook
 
 `PostToolUse`, `SessionStart`, `SessionEnd`, `UserPromptSubmit`, `Stop` (and each CLI's equivalents) are recorded, never enforced. The hook dispatches on `hook_event_name`: `PreToolUse`, `BeforeTool`, or no event name take the decision path above; everything else is observed and exits 0. Field sources and per-agent details are in [activity.md](activity.md).
 
+None of these hook payloads include the model's reasoning. When `transcript_path` points at a session file under the developer home, the sidecar copies plaintext thinking that file already contains (Codex reasoning summary or raw text; WorkBuddy / Claude Code / CodeBuddy `thinking` blocks). Encrypted or redacted reasoning is left unread. Gemini CLI does not expose thinking on these hooks. See [activity.md](activity.md).
+
 ## Normalized action model
 
 The hook forwards `tool_name`, `tool_input`, and (Gemini only) `mcp_context`. The sidecar's `internal/normalize` maps them onto one action: a kind plus resources. Unknown tools become `other`; the hook's failure behaviour does not change.
