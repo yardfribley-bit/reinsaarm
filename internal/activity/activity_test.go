@@ -83,7 +83,7 @@ func TestClaudeBashSuccess(t *testing.T) {
 	"tool_input":{"command":"ls"},"tool_response":{"stdout":"README.md\nmain.go","stderr":"","interrupted":false,"isImage":false},
 	"tool_use_id":"toolu_02","duration_ms":12}`)
 	a := Build("claude-code", "PostToolUse", p, nil, Options{})
-	if a.Success == nil || !*a.Success || !strings.Contains(a.Output, "README.md main.go") {
+	if a.Success == nil || !*a.Success || !strings.Contains(a.Output, "README.md\nmain.go") {
 		t.Fatalf("%+v", a)
 	}
 }
