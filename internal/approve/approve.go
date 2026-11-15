@@ -5,12 +5,14 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/canon"
+	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
 )
 
 // Grant is one pending or consumed approval.
@@ -120,6 +122,41 @@ func Approve(path, id string) (Grant, error) {
 		}
 	}
 	return Grant{}, os.ErrNotExist
+}
+
+// AppendReceipt writes the grant onto the hash chain. Approving is itself
+// an audited action, so the next tool receipt does not skip a sequence number.
+func AppendReceipt(led *ledger.Ledger, agentID string, g Grant) (ledger.Receipt, error) {
+	if led == nil {
+		return ledger.Receipt{}, fmt.Errorf("approve: nil ledger")
+	}
+	if g.ID == "" {
+		return ledger.Receipt{}, fmt.Errorf("approve: id required")
+	}
+	if agentID == "" {
+		agentID = "dev-coding-agent"
+	}
+	tool := g.Tool
+	if tool == "" {
+		tool = "approve"
+	}
+	return led.Append(ledger.Receipt{
+		EventID:          g.ID,
+		AgentID:          agentID,
+		Client:           "reinsaarm",
+		SessionID:        "approval",
+		Tool:             tool,
+		Kind:             "approval",
+		ActionDigest:     "sha256:" + g.ArgsHash,
+		CommandPreview:   "approve " + g.ID,
+		Decision:         "ALLOW",
+		EnforcedDecision: "ALLOW",
+		Tier:             "T3",
+		RuleIDs:          []string{"R-APPROVAL-GRANT"},
+		Reason:           "granted one-time approval " + g.ID,
+		EventType:        "approval.granted",
+		TS:               time.Now().UTC().Format(time.RFC3339Nano),
+	})
 }
 
 // Consume returns a matching unused approved grant and marks it used.

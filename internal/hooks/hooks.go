@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/decision"
@@ -129,18 +130,36 @@ type RenderResult struct {
 	ExitCode int
 }
 
+// ProjectEnforced is the decision the hook process actually applies.
+// Codex and Gemini have no fail-closed ask, so STEP_UP and DEFER become DENY.
+// Claude Code and CodeBuddy can ask, so STEP_UP stays STEP_UP. DEFER is deny
+// on every adapter in this MVP.
+func ProjectEnforced(client string, d decision.Decision) decision.Decision {
+	switch client {
+	case ClientCodex, ClientGemini:
+		if d == decision.StepUp || d == decision.Defer {
+			return decision.Deny
+		}
+	case ClientClaude, ClientCodeBuddy:
+		if d == decision.Defer {
+			return decision.Deny
+		}
+	}
+	return d
+}
+
 // Render projects an enforced decision onto one CLI's hook output.
 // Exit 0 is used for a well-formed decision. Exit 2 is reserved for a sidecar
-// failure, which every supported CLI treats as a block. Exit 1 is never used:
-// Claude Code, Codex, Gemini CLI, and CodeBuddy all continue the tool call on
-// a generic non-zero status.
+// failure. Exit 1 is never used: these CLIs continue the tool call on a generic
+// non-zero status. Codex treats exit 2 with empty stderr as a hook failure and
+// then continues, so FailClosed always writes a reason to stderr.
 func Render(client string, in Input, resp Response) (RenderResult, error) {
 	enforced := decision.Decision(resp.Enforced)
 	if enforced == "" {
 		enforced = decision.Decision(resp.Decision)
 	}
 	reason := resp.Reason
-	if resp.ApprovalID != "" && (enforced == decision.StepUp || enforced == decision.Defer) {
+	if resp.ApprovalID != "" && !strings.Contains(reason, resp.ApprovalID) {
 		reason = fmt.Sprintf("%s (approval %s; reinsaarm approve %s)", reason, resp.ApprovalID, resp.ApprovalID)
 	}
 	switch client {
@@ -158,14 +177,19 @@ func Render(client string, in Input, resp Response) (RenderResult, error) {
 }
 
 // FailClosed is the output when the sidecar cannot be reached.
+// Codex 0.151 fails open on exit 2 when stderr is empty, so stderr is never empty.
 func FailClosed(client, reason string) RenderResult {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "reinsaarm hook failed"
+	}
 	resp := Response{Decision: string(decision.Deny), Enforced: string(decision.Deny), Reason: "reinsaarm sidecar unavailable: " + reason, Tier: "T0", RuleIDs: []string{"R-SIDECAR-DOWN"}}
 	in := Input{ToolInput: map[string]any{}}
 	out, err := Render(client, in, resp)
 	if err != nil {
-		return RenderResult{Stderr: reason + "\n", ExitCode: 2}
+		out = RenderResult{ExitCode: 2}
 	}
-	out.Stderr = reason + "\n"
+	out.Stderr = "reinsaarm: " + reason + "\n"
 	out.ExitCode = 2
 	return out
 }
@@ -195,22 +219,34 @@ func renderClaude(in Input, d decision.Decision, reason, rewrite string) (Render
 }
 
 func renderCodex(in Input, d decision.Decision, reason, rewrite string) (RenderResult, error) {
-	// permissionDecision "ask" is parsed and then ignored: Codex marks the hook
-	// failed and continues the tool call. STEP_UP and DEFER are therefore deny
-	// until `reinsaarm approve` consumes a bound grant on a later attempt.
-	spec := map[string]any{"hookEventName": "PreToolUse"}
+	// Codex 0.151 rejects a bare permissionDecision "allow" and continues the
+	// tool call (permission_decision_allow_without_updated_input_fails_open).
+	// Silence on stdout with exit 0 leaves Codex's own permission flow in place.
+	// "ask" is parsed and then ignored the same way, so STEP_UP is deny.
 	switch d {
 	case decision.Allow:
-		spec["permissionDecision"] = "allow"
+		return RenderResult{ExitCode: 0}, nil
 	case decision.Modify:
-		spec["permissionDecision"] = "allow"
-		spec["permissionDecisionReason"] = reason
-		spec["updatedInput"] = rewrittenInput(in.ToolInput, rewrite)
+		if strings.TrimSpace(rewrite) == "" {
+			return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+				"hookEventName":            "PreToolUse",
+				"permissionDecision":       "deny",
+				"permissionDecisionReason": reason,
+			}})
+		}
+		return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "allow",
+			"permissionDecisionReason": reason,
+			"updatedInput":             rewrittenInput(in.ToolInput, rewrite),
+		}})
 	default:
-		spec["permissionDecision"] = "deny"
-		spec["permissionDecisionReason"] = reason
+		return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": reason,
+		}})
 	}
-	return marshalOut(map[string]any{"hookSpecificOutput": spec})
 }
 
 func renderGemini(in Input, d decision.Decision, reason, rewrite string) (RenderResult, error) {

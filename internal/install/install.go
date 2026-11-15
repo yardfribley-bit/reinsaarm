@@ -35,7 +35,9 @@ type Plan struct {
 }
 
 // Plans builds the files for one client. scope is "project" or "user".
-func Plans(client, bin, scope, projectDir, home string) ([]Plan, error) {
+// stateHome and socket are baked into the hook command so Codex does not
+// depend on an inherited REINSAARM_HOME.
+func Plans(client, bin, scope, projectDir, home, stateHome, socket string) ([]Plan, error) {
 	t, ok := Targets()[client]
 	if !ok {
 		return nil, fmt.Errorf("install: unknown client %q", client)
@@ -46,7 +48,7 @@ func Plans(client, bin, scope, projectDir, home string) ([]Plan, error) {
 	} else {
 		path = filepath.Join(projectDir, t.RelPath)
 	}
-	command := bin + " hook --client " + client
+	command := HookCommand(bin, client, stateHome, socket)
 	var doc map[string]any
 	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
 		if err := json.Unmarshal(b, &doc); err != nil {
@@ -96,10 +98,33 @@ func Apply(plans []Plan) error {
 	return nil
 }
 
+// HookCommand is the argv string stored in a CLI settings file.
+func HookCommand(bin, client, stateHome, socket string) string {
+	parts := []string{shellQuote(bin), "hook", "--client", client}
+	if stateHome != "" {
+		parts = append(parts, "--home", shellQuote(stateHome))
+	}
+	if socket != "" {
+		parts = append(parts, "--socket", shellQuote(socket))
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(s string) string {
+	if s == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(s, " \t\n'\"\\$`!*?[]{}()<>|&;") {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func mergeClaude(doc map[string]any, command string) {
 	hooks := object(doc, "hooks")
 	list := array(hooks, "PreToolUse")
-	if containsCommand(list, "reinsaarm hook --client claude-code") {
+	if replaced := replaceCommand(list, "reinsaarm hook --client claude-code", command); replaced {
+		hooks["PreToolUse"] = list
 		return
 	}
 	list = append(list, map[string]any{
@@ -122,7 +147,8 @@ func mergeCodex(doc map[string]any, command string) {
 	}
 	hooks := object(doc, "hooks")
 	list := array(hooks, "PreToolUse")
-	if containsCommand(list, "reinsaarm hook --client codex") {
+	if replaced := replaceCommand(list, "reinsaarm hook --client codex", command); replaced {
+		hooks["PreToolUse"] = list
 		return
 	}
 	list = append(list, map[string]any{
@@ -142,7 +168,8 @@ func mergeCodex(doc map[string]any, command string) {
 func mergeGemini(doc map[string]any, command string) {
 	hooks := object(doc, "hooks")
 	list := array(hooks, "BeforeTool")
-	if containsCommand(list, "reinsaarm hook --client gemini") {
+	if replaced := replaceCommand(list, "reinsaarm hook --client gemini", command); replaced {
+		hooks["BeforeTool"] = list
 		return
 	}
 	list = append(list, map[string]any{
@@ -162,7 +189,8 @@ func mergeGemini(doc map[string]any, command string) {
 func mergeCodeBuddy(doc map[string]any, command string) {
 	hooks := object(doc, "hooks")
 	list := array(hooks, "PreToolUse")
-	if containsCommand(list, "reinsaarm hook --client codebuddy") {
+	if replaced := replaceCommand(list, "reinsaarm hook --client codebuddy", command); replaced {
+		hooks["PreToolUse"] = list
 		return
 	}
 	list = append(list, map[string]any{
@@ -198,9 +226,29 @@ func array(doc map[string]any, key string) []any {
 	}
 }
 
-func containsCommand(list []any, needle string) bool {
-	raw, _ := json.Marshal(list)
-	return strings.Contains(string(raw), needle)
+func replaceCommand(list []any, needle, command string) bool {
+	replaced := false
+	for _, item := range list {
+		group, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		handlers, _ := group["hooks"].([]any)
+		for _, h := range handlers {
+			hm, ok := h.(map[string]any)
+			if !ok {
+				continue
+			}
+			cmd, _ := hm["command"].(string)
+			if strings.Contains(cmd, needle) && cmd != command {
+				hm["command"] = command
+				replaced = true
+			} else if strings.Contains(cmd, needle) {
+				replaced = true
+			}
+		}
+	}
+	return replaced
 }
 
 func codexRequirements(command string) string {

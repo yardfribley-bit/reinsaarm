@@ -78,8 +78,13 @@ func startServer(t *testing.T, mutate func(*Config)) *Server {
 
 func call(t *testing.T, socket, tool, command, session string) hooks.Response {
 	t.Helper()
+	return callAs(t, socket, "codex", tool, command, session)
+}
+
+func callAs(t *testing.T, socket, client, tool, command, session string) hooks.Response {
+	t.Helper()
 	resp, err := hooks.Exchange(socket, hooks.Request{
-		Schema: "reinsaarm.decide.v1", Client: "codex", SessionID: session,
+		Schema: "reinsaarm.decide.v1", Client: client, SessionID: session,
 		CWD: "/home/dev/project", Tool: tool, Input: map[string]any{"command": command},
 	}, 2*time.Second)
 	if err != nil {
@@ -107,11 +112,11 @@ func TestDaemonDecisionsAuditAndApproval(t *testing.T) {
 		t.Fatalf("allow %+v", ok)
 	}
 	push := call(t, srv.cfg.Socket, "Bash", "git push origin main", "s1")
-	if push.Enforced != string(decision.StepUp) || push.ApprovalID == "" {
-		t.Fatalf("step up %+v", push)
+	if push.Decision != string(decision.StepUp) || push.Enforced != string(decision.Deny) || push.ApprovalID == "" {
+		t.Fatalf("codex step up is enforced as deny: %+v", push)
 	}
 	again := call(t, srv.cfg.Socket, "Bash", "git push origin main", "s1")
-	if again.Enforced != string(decision.StepUp) {
+	if again.Decision != string(decision.StepUp) || again.Enforced != string(decision.Deny) {
 		t.Fatalf("second push should still wait: %+v", again)
 	}
 	if _, err := approve.Approve(srv.cfg.ApprovalPath, push.ApprovalID); err != nil {
@@ -122,8 +127,12 @@ func TestDaemonDecisionsAuditAndApproval(t *testing.T) {
 		t.Fatalf("granted %+v", granted)
 	}
 	changed := call(t, srv.cfg.Socket, "Bash", "git push origin main --verbose", "s1")
-	if changed.Enforced != string(decision.StepUp) {
+	if changed.Decision != string(decision.StepUp) || changed.Enforced != string(decision.Deny) {
 		t.Fatalf("changed args must not reuse approval: %+v", changed)
+	}
+	claude := callAs(t, srv.cfg.Socket, "claude-code", "Bash", "git push origin main", "claude")
+	if claude.Decision != string(decision.StepUp) || claude.Enforced != string(decision.StepUp) {
+		t.Fatalf("claude can ask: %+v", claude)
 	}
 
 	pub := srv.cfg.PublicKey

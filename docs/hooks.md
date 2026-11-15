@@ -41,12 +41,14 @@ Docs: <https://learn.chatgpt.com/docs/hooks> and the `PreToolUse` tests in `open
 
 - Event: `PreToolUse`. Matcher `"*"`, `""`, or omitting the matcher matches every occurrence. Shell tools are reported as `Bash`. `apply_patch` is also matched by `Edit` or `Write`, but the input still says `tool_name: "apply_patch"` and carries `tool_input.command`.
 - Deny: `hookSpecificOutput.permissionDecision = "deny"`. An older `{"decision":"block","reason":"..."}` shape is also accepted. The adapter uses the current shape.
-- Modify: `permissionDecision: "allow"` plus `updatedInput`. For Bash and `apply_patch`, `updatedInput.command` must be a string.
-- `ask` must not be emitted. Codex marks that hook run failed and continues the tool call, which is fail-open.
-- STEP_UP and DEFER are therefore projected to `deny`. The reason contains the approval id. `reinsaarm approve <id>` allows one later call with the same argument hash.
-- An explicit `allow` skips Codex's own permission prompt. That is what enforce mode means. Audit mode still returns allow to the CLI while the receipt records `shadow: true` and the policy decision.
+- Allow: Codex 0.151 rejects a bare `permissionDecision: "allow"` (`permission_decision_allow_without_updated_input_fails_open` in `codex-rs/hooks/src/events/pre_tool_use.rs`). The hook logs `PreToolUse Failed` and the tool call continues. ReinsAARM therefore prints **no stdout** and exits 0 on ALLOW, which leaves Codex's own permission check in place. It does not skip that prompt.
+- Modify: `permissionDecision: "allow"` plus `updatedInput`. For Bash and `apply_patch`, `updatedInput.command` must be a string. Allow is only sent together with `updatedInput`.
+- `ask` is not supported. Codex parses it, marks the hook failed, and continues the tool call. STEP_UP and DEFER are enforced as `deny`. The receipt keeps the policy decision (`STEP_UP`) in `decision` and records `enforced_decision: DENY`. The reason contains the approval id. `reinsaarm approve <id>` writes an `approval.granted` receipt and allows one later call with the same argument hash.
+- Exit 2 blocks only when stderr is non-empty. Empty stderr on exit 2 fails open. Every ReinsAARM exit 2 path writes `reinsaarm: <reason>` to stderr, including malformed stdin and a dead sidecar.
 - Timeout unit: seconds. Default in Codex is 600. The installed hook uses 15.
-- Project file: `.codex/hooks.json`. A managed-hook example is `examples/enterprise/codex-requirements.toml`. Non-managed hooks need a user trust review; managed hooks from `requirements.toml` do not.
+- Project file: `.codex/hooks.json`. The command bakes `--home` and `--socket`, because Codex does not inherit `REINSAARM_HOME` and an unset value falls back to `~/.reinsaarm`.
+- Unmanaged hooks do not run until they are trusted. Codex stores `hooks.state."<abs path>/.codex/hooks.json:pre_tool_use:<group>:<handler>".trusted_hash = "sha256:..."`. `install-hooks codex` prints the key and hash. Trust it with Codex `/hooks`, or pass `--trust` to write the entry into `$CODEX_HOME/config.toml` (default `~/.codex/config.toml`). `reinsaarm doctor` fails if the hash is missing or stale.
+- Managed hooks from `requirements.toml` are trusted by policy and do not need `trusted_hash`. Example: `examples/enterprise/codex-requirements.toml`.
 
 ## Gemini CLI
 

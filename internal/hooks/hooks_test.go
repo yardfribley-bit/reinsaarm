@@ -86,7 +86,20 @@ func TestRenderClients(t *testing.T) {
 	if !strings.Contains(string(gemMod.Stdout), "tool_input") || !strings.Contains(string(gemMod.Stdout), "git push origin feature") {
 		t.Fatalf("gemini modify: %s", gemMod.Stdout)
 	}
-	_ = decision.Allow
+	allow := Response{Decision: "ALLOW", Enforced: "ALLOW", Reason: "no blocking rule matched"}
+	codexAllow, err := Render(ClientCodex, in, allow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codexAllow.ExitCode != 0 || len(codexAllow.Stdout) != 0 || strings.Contains(string(codexAllow.Stdout), "allow") {
+		t.Fatalf("codex allow must be silent stdout, got %q exit %d", codexAllow.Stdout, codexAllow.ExitCode)
+	}
+	if ProjectEnforced(ClientCodex, decision.StepUp) != decision.Deny {
+		t.Fatal("codex step-up must be recorded as deny")
+	}
+	if ProjectEnforced(ClientClaude, decision.StepUp) != decision.StepUp {
+		t.Fatal("claude step-up stays step-up")
+	}
 }
 
 func TestFailClosedExit2(t *testing.T) {
@@ -98,6 +111,13 @@ func TestFailClosedExit2(t *testing.T) {
 		if !strings.Contains(string(out.Stdout), "deny") {
 			t.Fatalf("%s stdout %s", client, out.Stdout)
 		}
+		if out.ExitCode != 2 || strings.TrimSpace(out.Stderr) == "" || !strings.Contains(out.Stderr, "connection refused") {
+			t.Fatalf("%s stderr %q", client, out.Stderr)
+		}
+	}
+	empty := FailClosed(ClientCodex, "   ")
+	if empty.ExitCode != 2 || strings.TrimSpace(empty.Stderr) == "" {
+		t.Fatalf("empty reason still needs stderr: %q", empty.Stderr)
 	}
 }
 

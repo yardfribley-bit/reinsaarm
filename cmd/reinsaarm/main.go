@@ -7,10 +7,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/approve"
+	"github.com/yardfribley-bit/reinsaarm/internal/codextrust"
 	"github.com/yardfribley-bit/reinsaarm/internal/config"
 	"github.com/yardfribley-bit/reinsaarm/internal/daemon"
 	"github.com/yardfribley-bit/reinsaarm/internal/decision"
@@ -46,6 +48,8 @@ func main() {
 		err = cmdDecide(os.Args[2:])
 	case "bench":
 		err = cmdBench(os.Args[2:])
+	case "doctor":
+		err = cmdDoctor(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("reinsaarm", version)
 		return
@@ -69,7 +73,8 @@ Usage:
   reinsaarm init [--home DIR]
   reinsaarm run [--home DIR] [--socket PATH] [--web ADDR] [--egress ADDR]
   reinsaarm hook --client claude-code|codex|gemini|codebuddy
-  reinsaarm install-hooks <client> [--scope project|user] [--dest DIR]
+  reinsaarm install-hooks <client> [--scope project|user] [--dest DIR] [--trust]
+  reinsaarm doctor [--dest DIR]
   reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
   reinsaarm approve <approval-id>
   reinsaarm audit verify
@@ -182,48 +187,53 @@ func cmdHook(args []string) error {
 	home := fs.String("home", "", "state directory")
 	socket := fs.String("socket", "", "unix socket")
 	if err := fs.Parse(args); err != nil {
-		return err
+		exitHook(*client, err.Error())
 	}
 	if *client == "" {
-		return fmt.Errorf("hook: --client is required")
+		exitHook("codex", "--client is required")
 	}
 	in, err := hooks.ReadStdin()
 	if err != nil {
-		out := hooks.FailClosed(*client, err.Error())
-		os.Stderr.WriteString(out.Stderr)
-		os.Stdout.Write(out.Stdout)
-		os.Exit(out.ExitCode)
+		exitHook(*client, err.Error())
 	}
 	sock := *socket
 	if sock == "" {
 		cfg, err := loadConfig(*home)
 		if err != nil {
-			out := hooks.FailClosed(*client, err.Error())
-			os.Stderr.WriteString(out.Stderr)
-			os.Stdout.Write(out.Stdout)
-			os.Exit(out.ExitCode)
+			exitHook(*client, err.Error())
 		}
 		sock = cfg.Socket
 	}
 	resp, err := hooks.Exchange(sock, hooks.ToRequest(*client, in), 8*time.Second)
 	if err != nil {
-		out := hooks.FailClosed(*client, err.Error())
-		os.Stderr.WriteString(out.Stderr)
-		os.Stdout.Write(out.Stdout)
-		os.Exit(out.ExitCode)
+		exitHook(*client, err.Error())
 	}
 	out, err := hooks.Render(*client, in, resp)
 	if err != nil {
-		fail := hooks.FailClosed(*client, err.Error())
-		os.Stderr.WriteString(fail.Stderr)
-		os.Stdout.Write(fail.Stdout)
-		os.Exit(fail.ExitCode)
+		exitHook(*client, err.Error())
 	}
 	os.Stdout.Write(out.Stdout)
 	if resp.Enforced == string(decision.Deny) || resp.Enforced == string(decision.Defer) {
 		fmt.Fprintln(os.Stderr, "reinsaarm:", resp.Reason)
 	}
 	return nil
+}
+
+// exitHook always exits 2 with a non-empty stderr reason. Codex 0.151 fails
+// open when a hook exits 2 and stderr is empty.
+func exitHook(client, reason string) {
+	if client == "" {
+		client = "codex"
+	}
+	out := hooks.FailClosed(client, reason)
+	if strings.TrimSpace(out.Stderr) == "" {
+		out.Stderr = "reinsaarm: hook failed\n"
+	}
+	os.Stderr.WriteString(out.Stderr)
+	if len(out.Stdout) > 0 {
+		os.Stdout.Write(out.Stdout)
+	}
+	os.Exit(2)
 }
 
 func cmdInstall(args []string) error {
@@ -236,6 +246,8 @@ func cmdInstall(args []string) error {
 	dest := fs.String("dest", "", "project directory")
 	bin := fs.String("bin", "", "path to the reinsaarm binary")
 	homeFlag := fs.String("home", "", "developer home for --scope user")
+	stateFlag := fs.String("state", "", "ReinsAARM state directory baked into the hook command")
+	trust := fs.Bool("trust", false, "codex only: write hooks.state trusted_hash into the user config.toml")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -262,7 +274,15 @@ func cmdInstall(args []string) error {
 		}
 		devHome = h
 	}
-	plans, err := install.Plans(client, *bin, *scope, project, devHome)
+	stateHome, err := stateDir(*stateFlag)
+	if err != nil {
+		return err
+	}
+	socket := filepath.Join(stateHome, "reinsaarm.sock")
+	if cfg, err := config.Load(config.Path(stateHome)); err == nil && cfg.Socket != "" {
+		socket = cfg.Socket
+	}
+	plans, err := install.Plans(client, *bin, *scope, project, devHome, stateHome, socket)
 	if err != nil {
 		return err
 	}
@@ -271,6 +291,115 @@ func cmdInstall(args []string) error {
 	}
 	for _, p := range plans {
 		fmt.Printf("wrote %s\n%s\n", p.Path, p.Note)
+	}
+	if client == "codex" {
+		if err := explainCodexTrust(plans[0].Path, *trust); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func explainCodexTrust(hooksPath string, write bool) error {
+	found, err := codextrust.FindReins(hooksPath)
+	if err != nil {
+		return err
+	}
+	if len(found) == 0 {
+		return fmt.Errorf("codex hook file %s has no reinsaarm command", hooksPath)
+	}
+	codexHome := codexConfigDir()
+	cfgPath := filepath.Join(codexHome, "config.toml")
+	fmt.Println()
+	fmt.Println("Codex does not run this unmanaged hook until the current definition is trusted.")
+	fmt.Println("Open Codex and run /hooks to review it, or rerun with --trust.")
+	fmt.Println("Enterprise managed hooks in requirements.toml are trusted by policy and do not need this entry.")
+	for _, h := range found {
+		fmt.Printf("hook key: %s\n", h.Key)
+		fmt.Printf("trusted_hash: %s\n", h.Hash)
+		if write {
+			if err := codextrust.WriteTrust(cfgPath, h.Key, h.Hash); err != nil {
+				return err
+			}
+			fmt.Printf("wrote trusted_hash to %s\n", cfgPath)
+		}
+	}
+	if !write {
+		fmt.Printf("config checked by `reinsaarm doctor`: %s\n", cfgPath)
+	}
+	return nil
+}
+
+func codexConfigDir() string {
+	if v := os.Getenv("CODEX_HOME"); v != "" {
+		return v
+	}
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return ".codex"
+	}
+	return filepath.Join(h, ".codex")
+}
+
+func cmdDoctor(args []string) error {
+	fs := newFlag("doctor")
+	dest := fs.String("dest", "", "project directory")
+	codexHome := fs.String("codex-home", "", "Codex home (default $CODEX_HOME or ~/.codex)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	project := *dest
+	if project == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return err
+		}
+		project = wd
+	}
+	home := *codexHome
+	if home == "" {
+		home = codexConfigDir()
+	}
+	candidates := []string{
+		filepath.Join(project, ".codex", "hooks.json"),
+		filepath.Join(home, "hooks.json"),
+	}
+	var found []codextrust.Hook
+	for _, path := range candidates {
+		hooks, err := codextrust.FindReins(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return err
+		}
+		if len(hooks) > 0 {
+			found = append(found, hooks...)
+		}
+	}
+	if len(found) == 0 {
+		return fmt.Errorf("Codex hook is not installed (looked for .codex/hooks.json in %s and %s). Untrusted or missing hooks do not run, so tool calls are unprotected", project, home)
+	}
+	configs := []string{
+		filepath.Join(home, "config.toml"),
+		filepath.Join(project, ".codex", "config.toml"),
+	}
+	statuses := codextrust.Inspect(found, configs)
+	failed := false
+	for _, st := range statuses {
+		switch st.State {
+		case "trusted":
+			fmt.Printf("trusted %s\n", st.Hook.Key)
+		case "modified":
+			failed = true
+			fmt.Fprintf(os.Stderr, "UNTRUSTED Codex hook was modified after trust and will not run\nkey: %s\ncurrent: %s\nconfig %s has %s\nRun /hooks in Codex, or `reinsaarm install-hooks codex --trust`.\n", st.Hook.Key, st.Hook.Hash, st.ConfigPath, st.TrustedHash)
+		default:
+			failed = true
+			fmt.Fprintf(os.Stderr, "UNTRUSTED Codex hook will not run\nkey: %s\ntrusted_hash: %s\nNo matching trusted_hash in %s\nOpen Codex and run /hooks, or `reinsaarm install-hooks codex --trust`.\nManaged requirements.toml hooks do not need this entry.\n", st.Hook.Key, st.Hook.Hash, strings.Join(configs, " or "))
+		}
+	}
+	if failed {
+		return fmt.Errorf("codex hook trust check failed")
 	}
 	return nil
 }
@@ -352,7 +481,20 @@ func cmdApprove(args []string) error {
 	if err != nil {
 		return err
 	}
+	pub, priv, err := identity.LoadOrCreate(cfg.IdentityKey)
+	if err != nil {
+		return err
+	}
+	led, err := ledger.Open(cfg.AuditLog, cfg.ChainID, pub, priv)
+	if err != nil {
+		return err
+	}
+	rec, err := approve.AppendReceipt(led, cfg.AgentID, g)
+	if err != nil {
+		return err
+	}
 	fmt.Printf("approved %s for tool %s\n", g.ID, g.Tool)
+	fmt.Printf("audit seq %d %s\n", rec.Seq, rec.ReceiptHash)
 	fmt.Println("the next identical call is allowed once; a changed argument needs a new approval")
 	return nil
 }

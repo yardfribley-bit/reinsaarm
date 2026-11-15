@@ -287,19 +287,15 @@ func composeHits(hits []Hit, risk string) Outcome {
 		}
 	}
 	ids := make([]string, 0, len(hits)+1)
-	var primary, extra []string
+	var reasons []string
 	for _, h := range hits {
 		ids = append(ids, h.ID)
-		if h.Reason == "" || h.Decision == "" {
-			continue
-		}
-		if h.Decision == best {
-			primary = append(primary, h.Reason)
-		} else {
-			extra = append(extra, h.Reason)
+		// Only the winning decision's text is shown. A DENY that also matched
+		// a STEP_UP rule must not say "needs approval".
+		if h.Decision == best && h.Reason != "" {
+			reasons = append(reasons, h.Reason)
 		}
 	}
-	reasons := append(primary, extra...)
 	if len(hits) == 0 || (best == decision.Allow && len(reasons) == 0) {
 		ids = append(ids, "R-DEFAULT-ALLOW")
 		reasons = append(reasons, "no blocking rule matched")

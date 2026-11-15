@@ -1,9 +1,15 @@
 # Example managed hook for Codex requirements.toml.
-# Field names follow https://learn.chatgpt.com/docs/hooks as read on 2026-11-15.
+# Field names follow https://learn.chatgpt.com/docs/hooks as read on 2026-11-15,
+# plus Codex 0.151 trust behavior observed on macOS.
+# Managed hooks are trusted by policy. They do not need hooks.state.trusted_hash.
+# A project .codex/hooks.json hook does, until someone runs Codex /hooks
+# or `reinsaarm install-hooks codex --trust`.
+# Bake --home and --socket. Codex does not inherit REINSAARM_HOME.
 # This file is not installed automatically. `reinsaarm install-hooks codex`
-# writes a copy with the absolute binary path filled in.
-# Codex treats permissionDecision "ask" as a hook failure and then continues
-# the tool call, so ReinsAARM projects STEP_UP to deny until `reinsaarm approve`.
+# writes a copy next to hooks.json with the real paths filled in.
+# Codex does not support ask. STEP_UP is deny plus an approval id.
+# ALLOW is silence on stdout (exit 0). A bare permissionDecision "allow"
+# is rejected and the tool call continues.
 
 allow_managed_hooks_only = true
 

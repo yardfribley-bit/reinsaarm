@@ -11,7 +11,7 @@ func TestInstallEachClient(t *testing.T) {
 	dir := t.TempDir()
 	home := t.TempDir()
 	for _, client := range []string{"claude-code", "codex", "gemini", "codebuddy"} {
-		plans, err := Plans(client, "/usr/local/bin/reinsaarm", "project", dir, home)
+		plans, err := Plans(client, "/usr/local/bin/reinsaarm", "project", dir, home, "/state", "/state/reinsaarm.sock")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -22,11 +22,11 @@ func TestInstallEachClient(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(b), "reinsaarm hook --client "+client) {
+		if !strings.Contains(string(b), "reinsaarm hook --client "+client) || !strings.Contains(string(b), "--home /state") || !strings.Contains(string(b), "--socket /state/reinsaarm.sock") {
 			t.Fatalf("%s: %s", client, b)
 		}
 		// A second install must not duplicate the command.
-		again, err := Plans(client, "/usr/local/bin/reinsaarm", "project", dir, home)
+		again, err := Plans(client, "/usr/local/bin/reinsaarm", "project", dir, home, "/state", "/state/reinsaarm.sock")
 		if err != nil {
 			t.Fatal(err)
 		}

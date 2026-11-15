@@ -37,7 +37,9 @@ fast-path n=20000 p50=3.525µs p99=9.837µs max=254.841µs
 sidecar decide n=50 p50=396us p99=938us max=938us
 ```
 
-`go test -bench BenchmarkEvaluate -benchmem` on that host: **3383 ns/op**, 1212 B/op, 42 allocs/op. CI fails the in-process check if p99 is not under 1ms. The sidecar number includes the hash-chain append and excludes hook process startup. A second sample of 50 calls reached 1090µs, so 1ms is the target for the socket path, not a guarantee. Hook startup cost is not included and was not measured inside a real CLI.
+`go test -bench BenchmarkEvaluate -benchmem` on that host: **3383 ns/op**, 1212 B/op, 42 allocs/op. CI fails the in-process check if p99 is not under 1ms. The sidecar number includes the hash-chain append and excludes hook process startup. A second sample of 50 calls reached 1090µs, so 1ms is the target for the socket path, not a guarantee.
+
+A live session on an x86 Mac with Codex CLI 0.151.0 measured the hook end to end at about **p50 18ms, p99 26ms**. Sidecar `latency_us` in that session was about **p50 3.2ms, max 12.9ms**. Process startup and the real CLI dominate those numbers; they are not the in-process rule benchmark.
 
 ## Default policy
 
@@ -74,11 +76,13 @@ docs/workbuddy.md        WorkBuddy / CodeBuddy finding
 
 WorkBuddy / CodeBuddy **does** expose a pre-tool hook (`PreToolUse` in `.codebuddy/settings.json`, and an in-process SDK callback). The command-hook adapter is included. The SDK is not embedded. Public docs show that exit codes other than 0 and 2 continue the tool call, so the sidecar path still matters. See [docs/workbuddy.md](docs/workbuddy.md). That finding is from public pages fetched on 2026-11-15, not from a live IDE.
 
-Codex parses `permissionDecision: "ask"` and then continues the tool call. ReinsAARM therefore projects `STEP_UP` to deny on Codex and Gemini, and includes an approval id. `reinsaarm approve <id>` allows one later call with the same argument hash.
+Codex 0.151 does not run an unmanaged project hook until it is trusted. `install-hooks codex` prints the hook key (`<abs>/.codex/hooks.json:pre_tool_use:0:0`) and the `sha256` definition hash. Trust it with Codex `/hooks`, or pass `--trust` to write `hooks.state` into `~/.codex/config.toml`. `reinsaarm doctor` exits non-zero while the hook is untrusted or the hash is stale. Managed hooks in `requirements.toml` do not need that entry.
+
+Codex does not support `ask`. `STEP_UP` is enforced as deny plus an approval id, and the receipt stores that enforced deny separately from the policy decision. A bare `permissionDecision: "allow"` is rejected, so ALLOW prints nothing and exits 0. `reinsaarm approve` appends an `approval.granted` receipt. The hook command bakes `--home` and `--socket`, and every exit 2 writes a reason to stderr because Codex fails open when that stderr is empty.
 
 ## Known gaps
 
-- Hook JSON was checked against public docs on 2026-11-15 and was not run inside the real CLIs.
+- Codex CLI 0.151.0 was exercised on macOS. Claude Code, Gemini CLI, and CodeBuddy hook JSON was checked against public docs on 2026-11-15 and was not run inside those CLIs.
 - Codex, Gemini CLI, and CodeBuddy fail open if the hook process never starts. Claude Code fails closed only when `onFailure` is `block` (documented for v2.1.295+).
 - A confirmation clicked inside Claude Code is not written back into the hash chain. The bound approval is `reinsaarm approve`.
 - DNS exfiltration is a `dig` / `nslookup` heuristic, not a DNS proxy.
@@ -100,4 +104,4 @@ ReinsAARM 是给编程 Agent 用的本地运行时安全层，覆盖 Codex CLI�
 
 默认策略会拒绝读取 `~/.ssh`、`~/.aws` 和 `.env`（`.env.example` 除外），拒绝受保护分支的 force-push，把发往 `main` 的普通 push、工作区外的 `rm -rf`、以及灌进 shell 的远程脚本转成审批；严格模式下拒绝白名单以外的主机。CI 配置 `examples/profiles/ci-runner.yaml` 会把审批直接执行成拒绝。
 
-开发机上进程内规则 p99 约 10 微秒，sidecar 一次判定（含落盘、不含钩子进程启动）p99 约 1 毫秒以内。CI 会在进程内 p99 不低于 1 毫秒时失败。
+开发机上进程内规则 p99 约 10 微秒。x86 Mac 上用 Codex CLI 0.151.0 实测：钩子端到端 p50 约 18ms、p99 约 26ms；sidecar 的 `latency_us` p50 约 3.2ms、最大约 12.9ms。CI 会在进程内 p99 不低于 1 毫秒时失败。Codex 的项目级钩子必须先在 `/hooks` 里信任，或用 `install-hooks codex --trust` 写入 `trusted_hash`，否则不会执行。

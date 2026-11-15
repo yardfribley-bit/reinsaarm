@@ -233,8 +233,12 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 				Expires: time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
 				Tool:    action.Tool, Reason: comp.Reason,
 			})
+			comp.Reason = fmt.Sprintf("%s (approval %s; reinsaarm approve %s)", comp.Reason, approvalID, approvalID)
 		}
 	}
+	// The receipt's enforced_decision is what this client's hook will do,
+	// which can be stricter than the policy decision (Codex STEP_UP is deny).
+	enforced := hooks.ProjectEnforced(req.Client, comp.Enforced)
 
 	rec := ledger.Receipt{
 		EventID:          newID(),
@@ -246,7 +250,7 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		ActionDigest:     redact.Digest(action.Tool, action.Command, action.Paths, action.Hosts),
 		CommandPreview:   redact.Preview(action.Command, 180),
 		Decision:         string(comp.Decision),
-		EnforcedDecision: string(comp.Enforced),
+		EnforcedDecision: string(enforced),
 		Tier:             comp.Tier,
 		RuleIDs:          comp.RuleIDs,
 		Reason:           comp.Reason,
@@ -265,12 +269,12 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 	if err != nil {
 		comp.Degraded = true
 	}
-	s.noteSession(req.SessionID, req.Intent, action, comp.Enforced)
+	s.noteSession(req.SessionID, req.Intent, action, enforced)
 
 	return hooks.Response{
 		Schema:      "reinsaarm.decision.v1",
 		Decision:    string(comp.Decision),
-		Enforced:    string(comp.Enforced),
+		Enforced:    string(enforced),
 		Tier:        comp.Tier,
 		RuleIDs:     comp.RuleIDs,
 		Reason:      comp.Reason,

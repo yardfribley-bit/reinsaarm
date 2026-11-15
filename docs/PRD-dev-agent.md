@@ -52,7 +52,8 @@ Agent 在当前仓库里改代码、跑测试、装依赖。remit 是「只动�
 
 - `cat ~/.aws/credentials` → **DENY（T0）**。
 - `git status`、工作区内的 `rm -rf build` → **ALLOW（T0）**。
-- `git push origin main` → **STEP_UP（T0）**。Claude Code 和 CodeBuddy 映射成钩子的 `ask`；Codex 和 Gemini 没有不会 fail-open 的 ask，映射成 **deny**，开发者执行 `reinsaarm approve <id>` 后，同参数的下一次调用放行一次。
+- `git push origin main` → 策略 **STEP_UP（T0）**。Claude Code 和 CodeBuddy 映射成钩子的 `ask`。Codex 0.151 和 Gemini 没有不会 fail-open 的 ask，钩子实际执行 **deny**，回执里 `decision` 仍是 STEP_UP、`enforced_decision` 是 DENY。`reinsaarm approve <id>` 会在哈希链上追加一条批准回执，然后同参数的下一次调用放行一次。
+- Codex 的项目级 `hooks.json` 在被 `/hooks` 信任之前不会执行。`install-hooks` 会打印 hook key 和 `trusted_hash`；`reinsaarm doctor` 在未信任时失败。`requirements.toml` 里的托管 hook 不需要这条信任记录。ALLOW 对 Codex 不输出 `permissionDecision: "allow"`（0.151 会把它当成钩子失败并放行），而是空 stdout 加退出码 0。
 - `git push --force origin feature`（非受保护分支）→ **MODIFY（T0）**，去掉 force 标志。
 - 灰区（例如 `base64 -d`）且判官关闭、fail closed → **STEP_UP**。
 
