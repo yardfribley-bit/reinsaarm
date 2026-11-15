@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ReinsAARM 控制台</title>
+<style>
+  :root {
+    --bg: #0E1014;
+    --side: #0B0C0F;
+    --line: #1C2128;
+    --line2: #2A3038;
+    --gold: #C9A227;
+    --text: #E7E4DA;
+    --muted: #8B918A;
+    --deny: #F07178;
+    --deny-bg: #3A1A1C;
+    --allow: #5BD38A;
+    --allow-bg: #12301F;
+    --step: #E8B84A;
+    --step-bg: #2E250C;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
+  button, input { font: inherit; color: inherit; }
+  .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
+  aside { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px; }
+  .brand { padding: 6px 10px 18px; }
+  .brand b { color: var(--gold); letter-spacing: 0.08em; font-size: 15px; }
+  .brand span { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; }
+  nav button { width: 100%; text-align: left; background: transparent; border: 0; border-radius: 8px; padding: 10px 12px; color: var(--muted); cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+  nav button.active, nav button:hover { background: #14181d; color: var(--text); }
+  nav button.active { box-shadow: inset 2px 0 0 var(--gold); }
+  .badge { background: var(--gold); color: #1a1403; border-radius: 99px; min-width: 18px; padding: 0 6px; font-size: 11px; font-weight: 700; }
+  .foot { margin-top: auto; padding: 12px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  .foot strong { color: var(--text); font-weight: 600; }
+  main { display: flex; flex-direction: column; min-width: 0; }
+  header { display: flex; gap: 8px; align-items: center; padding: 14px 22px; border-bottom: 1px solid var(--line); }
+  .pill { border: 1px solid var(--line2); border-radius: 99px; padding: 4px 10px; font-size: 12px; color: var(--muted); }
+  .pill.ok { color: var(--allow); border-color: #1d4a32; background: #10261a; }
+  .pill.bad { color: var(--deny); border-color: #6a3034; background: var(--deny-bg); }
+  .content { padding: 22px; display: grid; grid-template-columns: 1fr 320px; gap: 18px; }
+  .content.single { grid-template-columns: 1fr; }
+  h1 { font-size: 20px; margin: 0 0 12px; font-weight: 600; }
+  .filters { display: flex; gap: 8px; margin-bottom: 12px; }
+  .filters button, .btn { background: #14181d; border: 1px solid var(--line2); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .filters button.on { border-color: var(--gold); color: var(--gold); }
+  .btn.gold { background: var(--gold); color: #1a1403; border-color: var(--gold); font-weight: 650; }
+  .btn.danger { background: var(--deny-bg); color: var(--deny); border-color: #6a3034; }
+  .btn.ghost { background: transparent; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; padding: 8px; border-bottom: 1px solid var(--line); }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace; font-size: 12px; }
+  .chip { display: inline-block; border-radius: 6px; padding: 2px 7px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em; }
+  .chip.DENY { color: var(--deny); background: var(--deny-bg); }
+  .chip.ALLOW { color: var(--allow); background: var(--allow-bg); }
+  .chip.STEP_UP, .chip.DEFER { color: var(--step); background: var(--step-bg); }
+  .arrow { color: var(--muted); margin: 0 4px; }
+  .card, .panel { background: #12151a; border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 10px; }
+  .banner { background: var(--deny-bg); border: 1px solid #6a3034; color: #ffd7d9; border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .banner h2 { margin: 0 0 6px; color: var(--deny); font-size: 16px; }
+  .row-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: min(420px, 100%); background: #12151a; border-left: 1px solid var(--line2); padding: 22px; box-shadow: -20px 0 40px #0008; overflow: auto; }
+  .muted { color: var(--muted); }
+  pre.yaml { white-space: pre-wrap; background: #0b0c0f; border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 360px; overflow: auto; }
+  .oktext { color: var(--allow); }
+  .badtext { color: var(--deny); }
+  .timeline { border-left: 2px solid var(--line2); margin-left: 10px; padding-left: 16px; }
+  .tl { margin: 0 0 16px; position: relative; }
+  .tl:before { content: ""; position: absolute; left: -21px; top: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+  a { color: var(--gold); }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside>
+    <div class="brand"><b>REINSAARM</b><span>运行时安全</span></div>
+    <nav>
+      <button data-page="stream" class="active">实时流</button>
+      <button data-page="approvals">审批 <span class="badge" id="nav-badge" hidden>0</span></button>
+      <button data-page="audit">审计链</button>
+      <button data-page="policy">策略</button>
+      <button data-page="health">健康检查</button>
+    </nav>
+    <div class="foot">
+      <div>sidecar <strong id="foot-side">—</strong></div>
+      <div>延迟 p50 <strong id="foot-lat" class="mono">—</strong></div>
+      <div>审计校验 <strong id="foot-audit">—</strong></div>
+    </div>
+  </aside>
+  <main>
+    <header>
+      <span class="pill" id="pill-side">sidecar</span>
+      <span class="pill" id="pill-hook">钩子</span>
+      <span class="pill" id="pill-proj">项目</span>
+    </header>
+    <div class="content" id="view"></div>
+  </main>
+</div>
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const view = $("#view");
+let page = "stream";
+let openId = "";
+function readHash() {
+  const parts = (location.hash.replace(/^#\/?/, "") || "stream").split("/");
+  page = parts[0] || "stream";
+  openId = parts[1] || "";
+}
+readHash();
+let filter = "all";
+let boot = {};
+let receipts = [];
+let approvals = {pending: [], resolved: []};
+let drawer = null;
+
+function agentName(c) {
+  const m = {codex:"Codex", "claude-code":"Claude Code", gemini:"Gemini", codebuddy:"CodeBuddy", reinsaarm:"系统", sensor:"系统", egress:"系统", demo:"系统"};
+  return m[c] || c || "系统";
+}
+function chip(d) {
+  if (!d) return "";
+  return `<span class="chip ${d}">${d}</span>`;
+}
+function chips(rec) {
+  if (rec.decision === rec.enforced_decision) return chip(rec.decision);
+  return chip(rec.decision) + `<span class="arrow">→</span>` + chip(rec.enforced_decision);
+}
+function when(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return d.toLocaleTimeString("zh-CN", {hour12:false});
+}
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+}
+
+async function api(path, opt) {
+  const r = await fetch(path, opt);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+async function refresh() {
+  boot = await api("/api/bootstrap");
+  const badge = $("#nav-badge");
+  badge.hidden = !boot.pending;
+  badge.textContent = boot.pending || "";
+  $("#foot-side").textContent = boot.sidecar === "running" ? "运行中" : "未连接";
+  $("#foot-lat").textContent = boot.latency_p50_us ? (boot.latency_p50_us/1000).toFixed(1) + " ms" : "—";
+  $("#foot-audit").textContent = boot.audit_ok ? "通过" : "未通过";
+  setPill($("#pill-side"), boot.sidecar === "running", "sidecar 运行中", "sidecar 未连接");
+  setPill($("#pill-hook"), boot.hook_trust === "trusted", "钩子已信任", "钩子未信任");
+  setPill($("#pill-proj"), boot.project_trust === "trusted", "项目已信任", "项目未信任");
+  if (page === "stream" || page === "audit") {
+    const q = page === "stream" ? filter : "all";
+    receipts = (await api("/api/receipts?filter=" + encodeURIComponent(q))).receipts || [];
+  }
+  if (page === "stream" || page === "approvals") {
+    approvals = await api("/api/approvals");
+    if (openId) drawer = (approvals.pending || []).find(g => g.id === openId) || drawer;
+  }
+  render();
+}
+function setPill(el, ok, yes, no) {
+  el.className = "pill " + (ok ? "ok" : "bad");
+  el.textContent = ok ? yes : no;
+}
+function banner() {
+  if (!boot.untrusted) return "";
+  return `<div class="banner"><h2>钩子未被信任，拦截未生效</h2>
+    <p>Codex 在钩子或项目未信任时不会加载项目 <span class="mono">.codex/hooks.json</span>。</p>
+    <p class="mono">${esc(boot.fix_command)}</p>
+    <p class="mono">${esc(boot.hook_key || "")}</p>
+    <div class="row-actions">
+      <button class="btn gold" id="copy-fix">复制修复命令</button>
+      <button class="btn" data-page-jump="health">查看健康检查</button>
+    </div></div>`;
+}
+
+function render() {
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+  view.className = "content" + (page === "stream" ? "" : " single");
+  if (page === "stream") view.innerHTML = streamHTML();
+  else if (page === "approvals") view.innerHTML = approvalsHTML();
+  else if (page === "audit") view.innerHTML = auditHTML();
+  else if (page === "policy") view.innerHTML = `<h1>策略</h1><div id="policy">加载中…</div>`;
+  else view.innerHTML = `<h1>健康检查</h1><div id="health">加载中…</div>`;
+  bind();
+  if (page === "policy") loadPolicy();
+  if (page === "health") loadHealth();
+}
+function streamHTML() {
+  const rows = receipts.map(r => `<tr>
+    <td class="mono muted">${esc(when(r.ts))}</td>
+    <td>${esc(agentName(r.client))}</td>
+    <td class="mono">${esc(r.command_preview || r.tool)}</td>
+    <td>${esc(r.reason || "")}</td>
+    <td>${chips(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">还没有决定。</td></tr>`;
+  const cards = (approvals.pending || []).map(card).join("") || `<p class="muted">没有待审批。</p>`;
+  const done = (approvals.resolved || []).slice(-4).reverse().map(g => `<div class="card"><div class="mono">${esc(g.id)}</div><div class="muted">${g.denied ? "已拒绝" : "已处理"}</div></div>`).join("");
+  return `<section><h1>实时流</h1>${banner()}
+    <div class="filters">
+      ${["all:全部","deny:拒绝","step:需审批","allow:放行"].map(x => {
+        const [id, label] = x.split(":");
+        return `<button data-filter="${id}" class="${filter===id?"on":""}">${label}</button>`;
+      }).join("")}
+    </div>
+    <table><thead><tr><th>时间</th><th>Agent</th><th>命令</th><th>原因</th><th>策略 → 执行</th></tr></thead><tbody>${rows}</tbody></table>
+    </section><aside><h1>待审批</h1>${cards}<h1 style="margin-top:18px;font-size:16px">最近处理</h1>${done}</aside>`;
+}
+function card(g) {
+  return `<div class="card"><div class="mono">${esc(g.id)}</div>
+    <div class="mono" style="margin:6px 0">${esc(g.command || g.tool)}</div>
+    <div class="muted">${esc(g.reason || "")}</div>
+    <div class="row-actions">
+      <button class="btn gold" data-act="approve" data-id="${esc(g.id)}">批准</button>
+      <button class="btn danger" data-act="deny" data-id="${esc(g.id)}">拒绝</button>
+    </div></div>`;
+}
+function approvalsHTML() {
+  const list = (approvals.pending || []).map(g => `<div class="card" data-open="${esc(g.id)}">
+    <div class="mono">${esc(g.id)}</div>
+    <div class="mono">${esc(g.command || g.tool)}</div>
+    <div class="muted">${esc(g.reason || "")}</div></div>`).join("") || `<p class="muted">没有待审批。</p>`;
+  return `<section><h1>审批</h1>${list}</section>` + (drawer ? drawerHTML(drawer) : "");
+}
+function drawerHTML(g) {
+  return `<div class="drawer"><h1>审批详情</h1>
+    <p class="mono">${esc(g.command || g.tool)}</p>
+    <p>${chip(g.decision || "STEP_UP")}<span class="arrow">→</span>${chip(g.enforced || ((g.client==="claude-code"||g.client==="codebuddy")?"STEP_UP":"DENY"))}</p>
+    <p class="muted">${esc(g.reason || "")}</p>
+    <p>批准会写入 <span class="mono">approval.granted</span>，并对这一组参数放行一次。</p>
+    <div class="row-actions">
+      <button class="btn gold" data-act="approve" data-id="${esc(g.id)}">批准并写入审计链</button>
+      <button class="btn danger" data-act="deny" data-id="${esc(g.id)}">拒绝</button>
+      <button class="btn ghost" id="close-drawer">取消</button>
+    </div></div>`;
+}
+function auditHTML() {
+  const items = receipts.map(r => `<div class="tl">
+    <div><span class="mono">#${r.seq}</span> ${esc(r.command_preview || r.tool)} ${chips(r)}</div>
+    <div class="muted">${esc(r.reason || r.event_type || "")}</div>
+    <div class="mono muted">${esc((r.receipt_hash || "").slice(0, 22))}</div>
+  </div>`).join("") || `<p class="muted">审计链是空的。</p>`;
+  return `<section><h1>审计链</h1>
+    <div class="row-actions"><button class="btn gold" id="verify">校验整条链</button><span id="verify-out" class="muted"></span></div>
+    <div class="timeline">${items}</div></section>`;
+}
+async function loadPolicy() {
+  const p = await api("/api/policy");
+  $("#policy").innerHTML = `
+    <div class="card"><h2>网络白名单</h2><p class="muted">模式 ${esc(p.network_mode)}</p><p class="mono">${esc((p.allow||[]).join("  "))}</p></div>
+    <div class="card"><h2>受保护分支</h2><p>force-push <span class="chip DENY">DENY</span>　普通 push <span class="chip STEP_UP">STEP_UP</span></p><p class="mono">${esc((p.protected_branches||[]).join(" "))}</p></div>
+    <div class="card"><h2>凭据路径</h2><p class="mono">${esc((p.credential_prefixes||[]).join("\n"))}</p><p class="muted">允许的文件名 ${(p.allow_basenames||[]).join(", ")}</p></div>
+    <div class="card"><h2>适配器</h2><table><tr><th>客户端</th><th>放行</th><th>需审批</th><th>说明</th></tr>
+      ${(p.adapters||[]).map(a => `<tr><td>${esc(a.client)}</td><td>${esc(a.allow)}</td><td>${esc(a.step_up)}</td><td class="muted">${esc(a.note)}</td></tr>`).join("")}
+    </table></div>
+    <h2>remit.yaml</h2><pre class="yaml mono">${esc(p.yaml || "")}</pre>`;
+}
+async function loadHealth() {
+  const h = await api("/api/health");
+  $("#health").innerHTML = `<div class="row-actions"><button class="btn" id="rerun">重新检查</button></div>` +
+    (h.items||[]).map(it => `<div class="card"><strong>${esc(it.name)}</strong>
+      <span class="${it.ok ? "oktext" : "badtext"}">${it.ok ? "通过" : "未通过"}</span>
+      <div class="muted mono">${esc(it.detail || "")}</div></div>`).join("");
+  $("#rerun").onclick = () => loadHealth();
+}
+function bind() {
+  document.querySelectorAll("[data-filter]").forEach(b => b.onclick = () => { filter = b.dataset.filter; refresh(); });
+  document.querySelectorAll("[data-page-jump]").forEach(b => b.onclick = () => go(b.dataset.pageJump));
+  document.querySelectorAll("[data-act]").forEach(b => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    await api("/api/approvals/" + b.dataset.id + "/" + b.dataset.act, {method:"POST"});
+    drawer = null;
+    await refresh();
+  });
+  document.querySelectorAll("[data-open]").forEach(b => b.onclick = () => {
+    drawer = (approvals.pending||[]).find(g => g.id === b.dataset.open) || null;
+    render();
+  });
+  const copy = $("#copy-fix");
+  if (copy) copy.onclick = () => navigator.clipboard.writeText(boot.fix_command || "");
+  const close = $("#close-drawer");
+  if (close) close.onclick = () => { drawer = null; render(); };
+  const verify = $("#verify");
+  if (verify) verify.onclick = async () => {
+    const res = await api("/api/audit/verify", {method:"POST"});
+    const el = $("#verify-out");
+    el.textContent = res.ok ? `通过，${res.count} 条` : ("未通过 " + (res.error || ""));
+    el.className = res.ok ? "oktext" : "badtext";
+    boot.audit_ok = !!res.ok;
+    $("#foot-audit").textContent = boot.audit_ok ? "通过" : "未通过";
+  };
+}
+function go(p) { page = p; location.hash = "#/" + p; drawer = null; refresh(); }
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.remove("active"));
+  b.classList.add("active");
+  go(b.dataset.page);
+});
+window.addEventListener("hashchange", () => {
+  readHash();
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+  refresh();
+});
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

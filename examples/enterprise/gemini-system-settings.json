@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "name": "reinsaarm",
+            "type": "command",
+            "command": "/usr/local/bin/reinsaarm hook --client gemini",
+            "timeout": 15000
+          }
+        ]
+      }
+    ]
+  }
+}

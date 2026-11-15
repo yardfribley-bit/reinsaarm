@@ -1,0 +1,10 @@
+/bin/
+/dist/
+*.sock
+identity.key
+identity.pub
+audit.jsonl
+approvals.json
+.reinsaarm/
+coverage.out
+*.test
