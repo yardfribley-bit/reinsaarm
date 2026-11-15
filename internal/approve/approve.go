@@ -23,7 +23,12 @@ type Grant struct {
 	Approved bool   `json:"approved"`
 	Used     bool   `json:"used"`
 	Tool     string `json:"tool"`
+	Command  string `json:"command,omitempty"`
+	Client   string `json:"client,omitempty"`
 	Reason   string `json:"reason"`
+	Decision string `json:"decision,omitempty"`
+	Enforced string `json:"enforced,omitempty"`
+	Denied   bool   `json:"denied,omitempty"`
 }
 
 type file struct {
@@ -155,6 +160,63 @@ func AppendReceipt(led *ledger.Ledger, agentID string, g Grant) (ledger.Receipt,
 		RuleIDs:          []string{"R-APPROVAL-GRANT"},
 		Reason:           "granted one-time approval " + g.ID,
 		EventType:        "approval.granted",
+		TS:               time.Now().UTC().Format(time.RFC3339Nano),
+	})
+}
+
+// Deny marks a grant rejected so it cannot be consumed, and returns it.
+func Deny(path, id string) (Grant, error) {
+	grants, err := Load(path)
+	if err != nil {
+		return Grant{}, err
+	}
+	for i := range grants {
+		if grants[i].ID == id {
+			if grants[i].Used {
+				return Grant{}, fmt.Errorf("approve: %s already used", id)
+			}
+			grants[i].Denied = true
+			grants[i].Approved = false
+			if err := Save(path, grants); err != nil {
+				return Grant{}, err
+			}
+			return grants[i], nil
+		}
+	}
+	return Grant{}, os.ErrNotExist
+}
+
+// AppendDenial writes a rejection onto the hash chain.
+func AppendDenial(led *ledger.Ledger, agentID string, g Grant) (ledger.Receipt, error) {
+	if led == nil {
+		return ledger.Receipt{}, fmt.Errorf("approve: nil ledger")
+	}
+	if agentID == "" {
+		agentID = "dev-coding-agent"
+	}
+	tool := g.Tool
+	if tool == "" {
+		tool = "approve"
+	}
+	preview := g.Command
+	if preview == "" {
+		preview = "deny " + g.ID
+	}
+	return led.Append(ledger.Receipt{
+		EventID:          "deny-" + g.ID,
+		AgentID:          agentID,
+		Client:           "reinsaarm",
+		SessionID:        "approval",
+		Tool:             tool,
+		Kind:             "approval",
+		ActionDigest:     "sha256:" + g.ArgsHash,
+		CommandPreview:   preview,
+		Decision:         "DENY",
+		EnforcedDecision: "DENY",
+		Tier:             "T3",
+		RuleIDs:          []string{"R-APPROVAL-DENY"},
+		Reason:           "denied approval " + g.ID,
+		EventType:        "approval.denied",
 		TS:               time.Now().UTC().Format(time.RFC3339Nano),
 	})
 }

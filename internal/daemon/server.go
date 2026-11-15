@@ -231,7 +231,9 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 			_ = approve.Put(s.cfg.ApprovalPath, approve.Grant{
 				ID: approvalID, ArgsHash: hash,
 				Expires: time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
-				Tool:    action.Tool, Reason: comp.Reason,
+				Tool:    action.Tool, Command: action.Command, Client: req.Client,
+				Reason:   comp.Reason,
+				Enforced: string(hooks.ProjectEnforced(req.Client, decision.StepUp)),
 			})
 			comp.Reason = fmt.Sprintf("%s (approval %s; reinsaarm approve %s)", comp.Reason, approvalID, approvalID)
 		}
@@ -258,6 +260,7 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		EventType:        "action.decision",
 		Degraded:         comp.Degraded,
 		Shadow:           comp.Shadow,
+		LatencyUS:        time.Since(start).Microseconds(),
 		TS:               time.Now().UTC().Format(time.RFC3339Nano),
 	}
 	if verdict != nil {

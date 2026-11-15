@@ -17,10 +17,13 @@ go build -o bin/reinsaarm ./cmd/reinsaarm
 bin/reinsaarm init
 bin/reinsaarm run
 # another shell
-bin/reinsaarm install-hooks claude-code    # or codex, gemini, codebuddy
+bin/reinsaarm install-hooks codex --trust   # or claude-code, gemini, codebuddy
+bin/reinsaarm console                       # http://127.0.0.1:8787/?token=...
 bin/reinsaarm audit tail
 bin/reinsaarm audit verify
 ```
+
+`reinsaarm console` (alias `ui`) serves the local dark UI on `127.0.0.1` only. The process prints a URL with a random token; the same token is set as a cookie. Static files are embedded. There is no CDN. Approve and deny in the UI call the same path as `reinsaarm approve` and append `approval.granted` or `approval.denied` receipts. `reinsaarm doctor` fails if the Codex hook hash is missing or if `projects."<project>".trust_level` is not `trusted`. `--trust` writes both. Flags such as `--home` may follow the positional id.
 
 State lives in `$REINSAARM_HOME` or `~/.reinsaarm`. `identity.key` is mode `0600` and is not part of the source tree.
 
@@ -104,4 +107,4 @@ ReinsAARM 是给编程 Agent 用的本地运行时安全层，覆盖 Codex CLI�
 
 默认策略会拒绝读取 `~/.ssh`、`~/.aws` 和 `.env`（`.env.example` 除外），拒绝受保护分支的 force-push，把发往 `main` 的普通 push、工作区外的 `rm -rf`、以及灌进 shell 的远程脚本转成审批；严格模式下拒绝白名单以外的主机。CI 配置 `examples/profiles/ci-runner.yaml` 会把审批直接执行成拒绝。
 
-开发机上进程内规则 p99 约 10 微秒。x86 Mac 上用 Codex CLI 0.151.0 实测：钩子端到端 p50 约 18ms、p99 约 26ms；sidecar 的 `latency_us` p50 约 3.2ms、最大约 12.9ms。CI 会在进程内 p99 不低于 1 毫秒时失败。Codex 的项目级钩子必须先在 `/hooks` 里信任，或用 `install-hooks codex --trust` 写入 `trusted_hash`，否则不会执行。
+开发机上进程内规则 p99 约 10 微秒。x86 Mac 上用 Codex CLI 0.151.0 实测：钩子端到端 p50 约 18ms、p99 约 26ms；sidecar 的 `latency_us` p50 约 3.2ms、最大约 12.9ms。CI 会在进程内 p99 不低于 1 毫秒时失败。Codex 的项目级钩子必须先在 `/hooks` 里信任，或用 `install-hooks codex --trust` 写入 `trusted_hash` 和项目 `trust_level`，否则不会执行。本地控制台：`reinsaarm console`，只监听 127.0.0.1，地址里带一次性 token。

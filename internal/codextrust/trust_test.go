@@ -91,3 +91,30 @@ func TestDoctorUntrustedThenTrusted(t *testing.T) {
 		t.Fatalf("stale hash should be modified, got %s", status[0].State)
 	}
 }
+
+func TestProjectTrust(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "config.toml")
+	project := filepath.Join(dir, "repo")
+	level, ok := ProjectTrust(cfg, project)
+	if ok || level != "" {
+		t.Fatalf("missing file level=%q ok=%v", level, ok)
+	}
+	if err := os.WriteFile(cfg, []byte("model = \"gpt\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ProjectTrust(cfg, project); ok {
+		t.Fatal("untrusted project reported trusted")
+	}
+	if err := WriteProjectTrust(cfg, project); err != nil {
+		t.Fatal(err)
+	}
+	level, ok = ProjectTrust(cfg, project)
+	if !ok || level != "trusted" {
+		t.Fatalf("level=%q ok=%v", level, ok)
+	}
+	body, _ := os.ReadFile(cfg)
+	if !strings.Contains(string(body), `model = "gpt"`) {
+		t.Fatalf("rewrote unrelated config:\n%s", body)
+	}
+}

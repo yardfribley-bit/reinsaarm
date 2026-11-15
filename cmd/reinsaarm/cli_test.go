@@ -59,7 +59,7 @@ func TestDoctorFailsUntilTrusted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfg), "trusted_hash") || !strings.Contains(string(cfg), "pre_tool_use:0:0") {
+	if !strings.Contains(string(cfg), "trusted_hash") || !strings.Contains(string(cfg), "pre_tool_use:0:0") || !strings.Contains(string(cfg), "trust_level") {
 		t.Fatalf("config.toml:\n%s", cfg)
 	}
 }

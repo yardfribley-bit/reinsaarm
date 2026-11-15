@@ -45,6 +45,7 @@ type Receipt struct {
 	EventType        string   `json:"event_type"`
 	Degraded         bool     `json:"degraded"`
 	Shadow           bool     `json:"shadow"`
+	LatencyUS        int64    `json:"latency_us,omitempty"`
 	TS               string   `json:"ts"`
 	ReceiptHash      string   `json:"receipt_hash,omitempty"`
 	Signature        string   `json:"signature,omitempty"`

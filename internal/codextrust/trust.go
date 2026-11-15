@@ -315,3 +315,106 @@ func escapeToml(s string) string {
 	s = strings.ReplaceAll(s, `"`, `\"`)
 	return s
 }
+
+// ProjectTrust reads projects."<path>".trust_level from a Codex config.toml.
+// Codex will not load a project .codex/hooks.json until this is "trusted".
+func ProjectTrust(configPath, project string) (level string, found bool) {
+	b, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", false
+	}
+	return projectTrustIn(string(b), project)
+}
+
+func projectTrustIn(content, project string) (string, bool) {
+	project = filepath.Clean(project)
+	header := `[projects."` + escapeToml(project) + `"]`
+	if i := strings.Index(content, header); i >= 0 {
+		rest := content[i+len(header):]
+		var block strings.Builder
+		for _, line := range strings.Split(rest, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "[") {
+				break
+			}
+			block.WriteString(line)
+			block.WriteByte('\n')
+		}
+		if level, ok := trustLevelValue(block.String()); ok {
+			return level, true
+		}
+	}
+	dotted := `projects."` + escapeToml(project) + `".trust_level`
+	for _, line := range strings.Split(content, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, dotted) {
+			if level, ok := trustLevelValue(trim); ok {
+				return level, true
+			}
+		}
+	}
+	return "", false
+}
+
+func trustLevelValue(block string) (string, bool) {
+	for _, line := range strings.Split(block, "\n") {
+		trim := strings.TrimSpace(line)
+		if !strings.Contains(trim, "trust_level") {
+			continue
+		}
+		_, val, ok := strings.Cut(trim, "=")
+		if !ok {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		val = strings.Trim(val, `"`)
+		if val != "" {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+// WriteProjectTrust sets projects."<project>".trust_level = "trusted".
+func WriteProjectTrust(configPath, project string) error {
+	project = filepath.Clean(project)
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		return err
+	}
+	existing, err := os.ReadFile(configPath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	content := string(existing)
+	if level, ok := projectTrustIn(content, project); ok && level == "trusted" {
+		return nil
+	}
+	header := `[projects."` + escapeToml(project) + `"]`
+	block := header + "\ntrust_level = \"trusted\"\n"
+	if strings.Contains(content, header) {
+		// Replace the table body up to the next header.
+		idx := strings.Index(content, header)
+		rest := content[idx+len(header):]
+		rel := len(rest)
+		consumed := 0
+		for _, line := range strings.Split(rest, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "[") && consumed > 0 {
+				rel = consumed
+				break
+			}
+			consumed += len(line) + 1
+		}
+		if rel > len(rest) {
+			rel = len(rest)
+		}
+		content = content[:idx] + block + rest[rel:]
+	} else {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		if content != "" && !strings.HasSuffix(content, "\n\n") {
+			content += "\n"
+		}
+		content += block
+	}
+	return os.WriteFile(configPath, []byte(content), 0o644)
+}

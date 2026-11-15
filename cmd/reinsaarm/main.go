@@ -14,6 +14,7 @@ import (
 	"github.com/yardfribley-bit/reinsaarm/internal/approve"
 	"github.com/yardfribley-bit/reinsaarm/internal/codextrust"
 	"github.com/yardfribley-bit/reinsaarm/internal/config"
+	"github.com/yardfribley-bit/reinsaarm/internal/console"
 	"github.com/yardfribley-bit/reinsaarm/internal/daemon"
 	"github.com/yardfribley-bit/reinsaarm/internal/decision"
 	"github.com/yardfribley-bit/reinsaarm/internal/hooks"
@@ -50,6 +51,8 @@ func main() {
 		err = cmdBench(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
+	case "console", "ui":
+		err = cmdConsole(os.Args[2:])
 	case "version", "-v", "--version":
 		fmt.Println("reinsaarm", version)
 		return
@@ -75,6 +78,7 @@ Usage:
   reinsaarm hook --client claude-code|codex|gemini|codebuddy
   reinsaarm install-hooks <client> [--scope project|user] [--dest DIR] [--trust]
   reinsaarm doctor [--dest DIR]
+  reinsaarm console [--addr 127.0.0.1:8787] [--dest DIR]
   reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
   reinsaarm approve <approval-id>
   reinsaarm audit verify
@@ -293,14 +297,14 @@ func cmdInstall(args []string) error {
 		fmt.Printf("wrote %s\n%s\n", p.Path, p.Note)
 	}
 	if client == "codex" {
-		if err := explainCodexTrust(plans[0].Path, *trust); err != nil {
+		if err := explainCodexTrust(plans[0].Path, project, *trust); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func explainCodexTrust(hooksPath string, write bool) error {
+func explainCodexTrust(hooksPath, project string, write bool) error {
 	found, err := codextrust.FindReins(hooksPath)
 	if err != nil {
 		return err
@@ -324,6 +328,16 @@ func explainCodexTrust(hooksPath string, write bool) error {
 			fmt.Printf("wrote trusted_hash to %s\n", cfgPath)
 		}
 	}
+	if write {
+		absProject, err := filepath.Abs(project)
+		if err != nil {
+			return err
+		}
+		if err := codextrust.WriteProjectTrust(cfgPath, absProject); err != nil {
+			return err
+		}
+		fmt.Printf("wrote projects.%q.trust_level = trusted to %s\n", absProject, cfgPath)
+	}
 	if !write {
 		fmt.Printf("config checked by `reinsaarm doctor`: %s\n", cfgPath)
 	}
@@ -339,6 +353,43 @@ func codexConfigDir() string {
 		return ".codex"
 	}
 	return filepath.Join(h, ".codex")
+}
+
+func cmdConsole(args []string) error {
+	fs := newFlag("console")
+	home := fs.String("home", "", "state directory")
+	addr := fs.String("addr", "127.0.0.1:8787", "loopback listen address")
+	dest := fs.String("dest", "", "project directory for Codex trust checks")
+	if err := parseFlags(fs, args); err != nil {
+		return err
+	}
+	cfg, err := loadConfig(*home)
+	if err != nil {
+		return err
+	}
+	project := *dest
+	if project == "" {
+		project, err = os.Getwd()
+		if err != nil {
+			return err
+		}
+	}
+	srv, err := console.New(console.Config{
+		Addr: *addr, AuditPath: cfg.AuditLog, ApprovalPath: cfg.Approvals,
+		ProfilePath: cfg.Profile, IdentityKey: cfg.IdentityKey, ChainID: cfg.ChainID,
+		AgentID: cfg.AgentID, Socket: cfg.Socket, Project: project, CodexHome: codexConfigDir(),
+	})
+	if err != nil {
+		return err
+	}
+	ln, err := srv.Listen()
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "console http://%s/?token=%s\n", ln.Addr().String(), srv.Token())
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	return srv.Serve(ctx, ln)
 }
 
 func cmdDoctor(args []string) error {
@@ -397,6 +448,22 @@ func cmdDoctor(args []string) error {
 			failed = true
 			fmt.Fprintf(os.Stderr, "UNTRUSTED Codex hook will not run\nkey: %s\ntrusted_hash: %s\nNo matching trusted_hash in %s\nOpen Codex and run /hooks, or `reinsaarm install-hooks codex --trust`.\nManaged requirements.toml hooks do not need this entry.\n", st.Hook.Key, st.Hook.Hash, strings.Join(configs, " or "))
 		}
+	}
+	projectAbs, err := filepath.Abs(project)
+	if err != nil {
+		return err
+	}
+	userCfg := filepath.Join(home, "config.toml")
+	level, foundTrust := codextrust.ProjectTrust(userCfg, projectAbs)
+	if !foundTrust || level != "trusted" {
+		failed = true
+		shown := level
+		if shown == "" {
+			shown = "missing"
+		}
+		fmt.Fprintf(os.Stderr, "UNTRUSTED Codex project %s (trust_level=%s).\nCodex will not load %s/.codex/hooks.json until projects.%q.trust_level = \"trusted\" in %s.\nRun `reinsaarm install-hooks codex --trust` from that project, or set the trust level in Codex.\n", projectAbs, shown, projectAbs, projectAbs, userCfg)
+	} else {
+		fmt.Printf("project trusted %s\n", projectAbs)
 	}
 	if failed {
 		return fmt.Errorf("codex hook trust check failed")
@@ -467,7 +534,7 @@ func cmdTail(args []string) error {
 func cmdApprove(args []string) error {
 	fs := newFlag("approve")
 	home := fs.String("home", "", "state directory")
-	if err := fs.Parse(args); err != nil {
+	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
 	if fs.NArg() != 1 {
