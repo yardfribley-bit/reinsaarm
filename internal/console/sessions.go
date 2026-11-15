@@ -6,9 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
+	"github.com/yardfribley-bit/reinsaarm/internal/policy"
 )
 
 // sessionScan bounds how many receipts the sessions view reads.
@@ -30,6 +33,20 @@ type SessionSummary struct {
 	Ended     bool   `json:"ended"`
 	Running   bool   `json:"running"`
 	LastEvent string `json:"last_event"`
+	// Task replay fields, derived from the turns.
+	Turns int `json:"turns"`
+	// Status is running (the latest turn has no Stop yet), turn_done (the
+	// latest turn stopped, the session is still open), ended, idle (no Stop
+	// and no event for 30 minutes), or decisions_only (no activity events).
+	Status         string `json:"status"`
+	Model          string `json:"model,omitempty"`
+	Source         string `json:"source"`
+	SourceLabel    string `json:"source_label"`
+	LatestTitle    string `json:"latest_title"`
+	LatestOneLiner string `json:"latest_one_liner"`
+	// Risks are summed over all turns; Risky is true when there is any.
+	Risks []Risk `json:"risks"`
+	Risky bool   `json:"risky"`
 }
 
 // TimelineItem is one step in a session: a prompt, a tool call (decision and
@@ -54,7 +71,98 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, map[string]any{"sessions": summarize(recs, r.URL.Query().Get("agent"))})
+	writeJSON(w, map[string]any{"sessions": s.summarizeTurns(recs, r.URL.Query().Get("agent"))})
+}
+
+// summarizeTurns is summarize plus the turn fields of each session.
+func (s *Server) summarizeTurns(recs []ledger.Receipt, agent string) []SessionSummary {
+	sums := summarize(recs, agent)
+	groups := groupByKey(recs)
+	o := s.replayOpts()
+	for i := range sums {
+		ss := &sums[i]
+		turns := buildTurns(timeline(groups[ss.Key], ss.Key), ss.Ended, ss.CWD, o)
+		applyTurns(ss, turns)
+	}
+	return sums
+}
+
+func applyTurns(ss *SessionSummary, turns []Turn) {
+	ss.Turns = len(turns)
+	ss.Risks = []Risk{}
+	ss.Source, ss.SourceLabel = "unknown", "来源未记录"
+	if len(turns) == 0 {
+		ss.Status = "ended"
+		if !ss.Ended {
+			ss.Status = "turn_done"
+		}
+		return
+	}
+	last := turns[len(turns)-1]
+	ss.LatestTitle, ss.LatestOneLiner = last.Title, last.OneLiner
+	ss.Source, ss.SourceLabel = last.Source, last.SourceLabel
+	auto := true
+	agg := map[string]*Risk{}
+	var order []string
+	for _, t := range turns {
+		if t.Source != "automation" {
+			auto = false
+		}
+		if ss.Model == "" || t.Model != "" {
+			if t.Model != "" {
+				ss.Model = t.Model
+			}
+		}
+		for _, r := range t.Risks {
+			a := agg[r.Code]
+			if a == nil {
+				a = &Risk{Code: r.Code, Label: r.Label}
+				agg[r.Code] = a
+				order = append(order, r.Code)
+			}
+			a.Count += r.Count
+		}
+	}
+	if auto {
+		ss.Source, ss.SourceLabel = "automation", "自动化任务"
+	}
+	for _, c := range order {
+		ss.Risks = append(ss.Risks, *agg[c])
+	}
+	ss.Risky = len(ss.Risks) > 0
+	switch {
+	case ss.Ended:
+		ss.Status = "ended"
+	case last.Status == "decisions_only":
+		ss.Status = "decisions_only"
+	case last.Status == "running" && last.Stale:
+		ss.Status = "idle"
+	case last.Status == "running":
+		ss.Status = "running"
+	default:
+		ss.Status = "turn_done"
+	}
+	ss.Running = last.Status == "running"
+}
+
+func groupByKey(recs []ledger.Receipt) map[string][]ledger.Receipt {
+	out := map[string][]ledger.Receipt{}
+	for _, r := range recs {
+		if !agentClients[r.Client] {
+			continue
+		}
+		k := sessionKey(r.Client, r.SessionID)
+		out[k] = append(out[k], r)
+	}
+	return out
+}
+
+func (s *Server) replayOpts() replayOpts {
+	home := s.cfg.Home
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	return replayOpts{Home: home}
 }
 
 func summarize(recs []ledger.Receipt, agent string) []SessionSummary {
@@ -127,7 +235,12 @@ func summarize(recs []ledger.Receipt, agent string) []SessionSummary {
 }
 
 func (s *Server) sessionDetail(w http.ResponseWriter, r *http.Request) {
-	key, err := url.PathUnescape(strings.TrimPrefix(r.URL.EscapedPath(), "/api/sessions/"))
+	rest := strings.TrimPrefix(r.URL.EscapedPath(), "/api/sessions/")
+	sub := ""
+	if i := strings.Index(rest, "/"); i >= 0 {
+		rest, sub = rest[:i], rest[i+1:]
+	}
+	key, err := url.PathUnescape(rest)
 	if err != nil || key == "" {
 		http.Error(w, "session key required", http.StatusBadRequest)
 		return
@@ -148,7 +261,25 @@ func (s *Server) sessionDetail(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "session not found", http.StatusNotFound)
 		return
 	}
-	writeJSON(w, map[string]any{"session": sum, "items": timeline(recs, key)})
+	items := timeline(recs, key)
+	o := s.replayOpts()
+	if g := r.URL.Query().Get("gap"); g != "" {
+		if n, err := strconv.Atoi(g); err == nil && n > 0 {
+			o.GapAfter = time.Duration(n) * time.Second
+		}
+	}
+	turns := buildTurns(items, sum.Ended, sum.CWD, o)
+	applyTurns(sum, turns)
+	switch sub {
+	case "":
+		writeJSON(w, map[string]any{"session": sum, "items": items, "turns": turns, "policy": s.replayPolicy()})
+	case "turns":
+		writeJSON(w, map[string]any{"session": sum, "turns": turns})
+	case "report":
+		s.turnReport(w, r, sum, turns)
+	default:
+		http.Error(w, "not found", http.StatusNotFound)
+	}
 }
 
 // timeline orders a session's receipts and attaches each tool result to its
@@ -193,4 +324,14 @@ func timeline(recs []ledger.Receipt, key string) []TimelineItem {
 		}
 	}
 	return items
+}
+
+// replayPolicy is what the replay view says about the policy: how many MCP
+// rules exist and which egress hosts are allowed.
+func (s *Server) replayPolicy() map[string]any {
+	p, _, err := policy.LoadFile(s.cfg.ProfilePath)
+	if err != nil {
+		return map[string]any{"error": err.Error()}
+	}
+	return map[string]any{"mcp_rules": len(p.Spec.MCP.Rules), "network_mode": p.Spec.Network.Mode, "confine_writes": p.Spec.Workspace.ConfineWrites}
 }
