@@ -151,8 +151,14 @@ hook events are shown as model thinking (between steps) or composing the
 answer (last step → Stop); `?gap=N` changes the threshold.
 
 Source: `automation` (trigger `automation*` or a `<heartbeat>` prompt),
-`desktop` / `cli` / `ide` from the originator, the client for WorkBuddy /
-Claude Code / Gemini, else `unknown` (来源未记录).
+`desktop` / `cli` / `ide` from the originator (and Codex `turn_trigger=exec`),
+else a client fallback: Claude Code and Gemini default to `cli`; WorkBuddy has
+no originator, so the console uses the workspace path (a dated `WorkBuddy AI/`
+task folder or a `/~:` virtual project path means desktop) or a placeholder
+model (`default-model`, seen on CLI `-p`) and otherwise `unknown`. It does not
+label every WorkBuddy session as desktop. Timeline steps are shown as session
+start → prompt → tools → stop even when `UserPromptSubmit` was written (and
+sometimes timestamped) before `SessionStart`; receipt `seq` is unchanged.
 
 ### Risk flags
 

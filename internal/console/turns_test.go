@@ -223,3 +223,131 @@ func TestReportAndReceiptRange(t *testing.T) {
 	}
 	_ = json.Marshal
 }
+
+func TestWorkBuddySourceDetection(t *testing.T) {
+	// Bundled CLI `-p`: real project cwd, placeholder model, no originator.
+	// Previously mislabelled "桌面版".
+	cli := &chain{t: t}
+	cli.add(ledger.Receipt{Client: "workbuddy", SessionID: "01a1dfeb-0568-7880-a636-6bbffa5506c6",
+		CWD: "/Users/dev/reinsaarm-workbuddy-accept", EventType: "prompt.submit", TS: ts(0),
+		Activity: &ledger.Activity{Prompt: "Reply with exactly the word PONG and do nothing else.", PromptChars: 53, Model: "default-model"}})
+	cli.add(ledger.Receipt{Client: "workbuddy", SessionID: "01a1dfeb-0568-7880-a636-6bbffa5506c6",
+		CWD: "/Users/dev/reinsaarm-workbuddy-accept", EventType: "session.start",
+		TS:       "2026-11-15T13:00:00.011000000Z",
+		Activity: &ledger.Activity{Source: "startup", Model: "default-model"}})
+	cli.add(ledger.Receipt{Client: "workbuddy", SessionID: "01a1dfeb-0568-7880-a636-6bbffa5506c6",
+		CWD: "/Users/dev/reinsaarm-workbuddy-accept", EventType: "agent.stop", TS: ts(1),
+		Activity: &ledger.Activity{Message: "Authentication required.", MessageChars: 25, Model: "default-model"}})
+	turns := buildTurns(timeline(cli.recs, "workbuddy:01a1dfeb-0568-7880-a636-6bbffa5506c6"), false, "/Users/dev/reinsaarm-workbuddy-accept", opts())
+	if len(turns) != 1 {
+		t.Fatalf("turns %d", len(turns))
+	}
+	if turns[0].Source != "cli" || turns[0].SourceLabel != "命令行" {
+		t.Fatalf("cli -p labelled %+v / %s (%s)", turns[0].Source, turns[0].SourceLabel, turns[0].SourceWhy)
+	}
+
+	// Desktop: dated folder under WorkBuddy AI.
+	desk := &chain{t: t}
+	desk.add(ledger.Receipt{Client: "workbuddy", SessionID: "7def708b-fc17-493d-a0f2-57c5979e8c8b",
+		CWD: "/Users/dev/WorkBuddy AI/2026-11-12-18-52-21", EventType: "prompt.submit", TS: ts(0),
+		Activity: &ledger.Activity{Prompt: "hello", PromptChars: 5, Model: "hy4free"}})
+	desk.add(ledger.Receipt{Client: "workbuddy", SessionID: "7def708b-fc17-493d-a0f2-57c5979e8c8b",
+		CWD: "/Users/dev/WorkBuddy AI/2026-11-12-18-52-21", EventType: "agent.stop", TS: ts(2),
+		Activity: &ledger.Activity{Message: "ok", MessageChars: 2, Model: "hy4free"}})
+	dt := buildTurns(timeline(desk.recs, "workbuddy:7def708b-fc17-493d-a0f2-57c5979e8c8b"), false, "/Users/dev/WorkBuddy AI/2026-11-12-18-52-21", opts())
+	if dt[0].Source != "desktop" || dt[0].SourceLabel != "桌面版" {
+		t.Fatalf("desktop folder labelled %+v / %s (%s)", dt[0].Source, dt[0].SourceLabel, dt[0].SourceWhy)
+	}
+
+	// Desktop: virtual project path with /~:
+	virt := &chain{t: t}
+	virt.add(ledger.Receipt{Client: "workbuddy", SessionID: "698d8a04-47a7-44ca-b7b6-b492bf4634fd",
+		CWD: "/Users/dev/reinsaarm/~:reinsaarm-workbuddy-accept", EventType: "prompt.submit", TS: ts(0),
+		Activity: &ledger.Activity{Prompt: "hi", PromptChars: 2, Model: "hy4free"}})
+	virt.add(ledger.Receipt{Client: "workbuddy", SessionID: "698d8a04-47a7-44ca-b7b6-b492bf4634fd",
+		CWD: "/Users/dev/reinsaarm/~:reinsaarm-workbuddy-accept", EventType: "agent.stop", TS: ts(1),
+		Activity: &ledger.Activity{Message: "ok", MessageChars: 2, Model: "hy4free"}})
+	vt := buildTurns(timeline(virt.recs, "workbuddy:698d8a04-47a7-44ca-b7b6-b492bf4634fd"), false, "/Users/dev/reinsaarm/~:reinsaarm-workbuddy-accept", opts())
+	if vt[0].Source != "desktop" {
+		t.Fatalf("virtual path labelled %+v / %s (%s)", vt[0].Source, vt[0].SourceLabel, vt[0].SourceWhy)
+	}
+
+	// Ambiguous WorkBuddy session: no originator, ordinary cwd, real model.
+	// Must not default to 桌面版.
+	amb := &chain{t: t}
+	amb.add(ledger.Receipt{Client: "workbuddy", SessionID: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+		CWD: "/Users/dev/proj", EventType: "prompt.submit", TS: ts(0),
+		Activity: &ledger.Activity{Prompt: "ls", PromptChars: 2, Model: "hy4free"}})
+	at := buildTurns(timeline(amb.recs, "workbuddy:aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"), false, "/Users/dev/proj", opts())
+	if at[0].Source != "unknown" {
+		t.Fatalf("ambiguous labelled %+v / %s (%s)", at[0].Source, at[0].SourceLabel, at[0].SourceWhy)
+	}
+}
+
+func TestPromptBeforeSessionStartOrder(t *testing.T) {
+	// Observed WorkBuddy / some Codex hooks: UserPromptSubmit is appended
+	// (and sometimes timestamped) before SessionStart. Display should still
+	// be start → prompt → tools → stop, without rewriting receipt seq.
+	c := &chain{t: t}
+	c.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-cli", CWD: "/Users/dev/proj",
+		EventType: "prompt.submit", TS: "2026-11-15T15:54:46.352395Z",
+		Activity: &ledger.Activity{Prompt: "Reply with PONG", PromptChars: 16, Model: "default-model"}})
+	c.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-cli",
+		EventType: "session.start", TS: "2026-11-15T15:54:46.363164Z",
+		Activity: &ledger.Activity{Source: "startup", Model: "default-model"}})
+	c.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-cli", CWD: "/Users/dev/proj",
+		Tool: "Bash", Kind: "shell", CommandPreview: "echo ok",
+		Decision: "ALLOW", EnforcedDecision: "ALLOW", RuleIDs: []string{"R-DEFAULT-ALLOW"},
+		EventType: "action.decision", TS: "2026-11-15T15:54:46.400000Z"})
+	c.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-cli", CWD: "/Users/dev/proj",
+		EventType: "agent.stop", TS: "2026-11-15T15:54:46.802770Z",
+		Activity: &ledger.Activity{Message: "PONG", MessageChars: 4, Model: "default-model"}})
+
+	turns := buildTurns(timeline(c.recs, "workbuddy:s-cli"), true, "/Users/dev/proj", opts())
+	if len(turns) != 1 {
+		t.Fatalf("turns %d", len(turns))
+	}
+	got := make([]string, len(turns[0].Steps))
+	var seqs []uint64
+	for i, st := range turns[0].Steps {
+		got[i] = st.Type
+		seqs = append(seqs, st.Seq)
+	}
+	want := []string{"start", "prompt", "tool", "stop"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("display order %v want %v (seqs %v)", got, want, seqs)
+	}
+	if seqs[0] != 2 || seqs[1] != 1 || seqs[2] != 3 || seqs[3] != 4 {
+		t.Fatalf("seq numbers rewritten or mis-assigned: %v", seqs)
+	}
+	if turns[0].SeqFrom != 1 || turns[0].SeqTo != 4 {
+		t.Fatalf("seq range %d-%d", turns[0].SeqFrom, turns[0].SeqTo)
+	}
+
+	// SessionStart has a later seq but an earlier-looking? No: here prompt
+	// ts is first. Also cover start seq first but prompt timestamp slightly
+	// earlier (another live ordering).
+	d := &chain{t: t}
+	d.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-desk",
+		EventType: "session.start", TS: "2026-11-15T16:15:00.175427Z",
+		Activity: &ledger.Activity{Source: "startup", Model: "hy4free"}})
+	d.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-desk",
+		CWD: "/Users/dev/reinsaarm/~:proj", EventType: "prompt.submit",
+		TS:       "2026-11-15T16:15:00.175236Z",
+		Activity: &ledger.Activity{Prompt: "hi", PromptChars: 2, Model: "hy4free"}})
+	d.add(ledger.Receipt{Client: "workbuddy", SessionID: "s-desk",
+		CWD: "/Users/dev/reinsaarm/~:proj", EventType: "agent.stop",
+		TS:       "2026-11-15T16:15:18.296304Z",
+		Activity: &ledger.Activity{Message: "ok", MessageChars: 2, Model: "hy4free"}})
+	dt := buildTurns(timeline(d.recs, "workbuddy:s-desk"), true, "/Users/dev/reinsaarm/~:proj", opts())
+	if len(dt[0].Steps) != 3 || dt[0].Steps[0].Type != "start" || dt[0].Steps[1].Type != "prompt" || dt[0].Steps[2].Type != "stop" {
+		var types []string
+		for _, st := range dt[0].Steps {
+			types = append(types, st.Type)
+		}
+		t.Fatalf("start-seq-first still wrong display %v", types)
+	}
+	if dt[0].Steps[0].Seq != 1 || dt[0].Steps[1].Seq != 2 {
+		t.Fatalf("seqs %d %d", dt[0].Steps[0].Seq, dt[0].Steps[1].Seq)
+	}
+}

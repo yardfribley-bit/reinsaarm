@@ -806,7 +806,7 @@ func doctorWorkBuddy(project, configDir, stateFlag string) error {
 		_ = conn.Close()
 		fmt.Printf("sidecar ok %s\n", cfg.Socket)
 	}
-	fmt.Println("note: WorkBuddy snapshots hooks when a session starts; start a new task after installing")
+	fmt.Println("note: WorkBuddy often re-reads hooks in a running session; a new task is still the reliable way to be sure they are loaded, and /hooks review may still appear")
 	if failed {
 		return fmt.Errorf("workbuddy hook check failed")
 	}
