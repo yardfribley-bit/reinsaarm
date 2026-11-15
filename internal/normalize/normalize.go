@@ -11,6 +11,7 @@
 package normalize
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/extract"
@@ -41,10 +42,11 @@ type Call struct {
 // File argument keys. Claude Code: file_path, notebook_path, path (Glob, Grep,
 // LS). Gemini CLI: file_path, dir_path, include (read_many_files),
 // include_pattern (grep_search), legacy path and paths. CodeBuddy IDE:
-// target_file, path. Codex view_image: path.
+// target_file, path. Codex view_image: path. WorkBuddy ViewImage: image_path.
 var fileKeys = []string{
 	"file_path", "filepath", "path", "paths", "dir_path", "notebook_path",
 	"target_file", "absolute_path", "include", "include_pattern", "glob",
+	"image_path",
 }
 
 // MCP argument keys that name a file. MCP servers have no shared schema, so
@@ -55,11 +57,51 @@ var mcpPathKeys = []string{
 	"target_file", "absolute_path",
 }
 
+// DeferredTool is WorkBuddy's wrapper for tools it loads on demand: the
+// model calls DeferExecuteTool{toolName, params} and WorkBuddy runs toolName
+// with params. MCP tools (mcp__<server>__<tool>) and WorkBuddy-specific tools
+// reach the model this way. Seen in WorkBuddy 5.5.6 / WorkBuddy AI 5.9.4
+// session transcripts on 2026-11-15.
+const DeferredTool = "DeferExecuteTool"
+
+// Unwrap returns the inner tool name and input of a DeferExecuteTool call.
+// params may be an object or a JSON string. ok is false for any other tool
+// or when toolName is missing.
+func Unwrap(tool string, input map[string]any) (string, map[string]any, bool) {
+	if !strings.EqualFold(strings.TrimSpace(tool), DeferredTool) || input == nil {
+		return tool, input, false
+	}
+	name, _ := input["toolName"].(string)
+	if name == "" {
+		name, _ = input["tool_name"].(string)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" || strings.EqualFold(name, DeferredTool) {
+		return tool, input, false
+	}
+	params := map[string]any{}
+	switch v := input["params"].(type) {
+	case map[string]any:
+		params = v
+	case string:
+		var m map[string]any
+		if json.Unmarshal([]byte(v), &m) == nil && m != nil {
+			params = m
+		}
+	}
+	return name, params, true
+}
+
 // Action normalizes one call.
 func Action(c Call) policy.Action {
 	input := c.Input
 	if input == nil {
 		input = map[string]any{}
+	}
+	if inner, params, ok := Unwrap(c.Tool, input); ok {
+		// Evaluate the tool WorkBuddy will actually run. The receipt names
+		// the inner tool.
+		c.Tool, input = inner, params
 	}
 	kind := extract.Kind(c.Tool)
 	a := policy.Action{

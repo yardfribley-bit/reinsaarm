@@ -25,6 +25,11 @@ const (
 	ClientCodex     = "codex"
 	ClientGemini    = "gemini"
 	ClientCodeBuddy = "codebuddy"
+	// ClientWorkBuddy is Tencent WorkBuddy (desktop). It embeds the
+	// CodeBuddy Code CLI hook runner, but its decision parsing differs from
+	// the CodeBuddy IDE docs in ways that matter; see renderWorkBuddy and
+	// docs/workbuddy.md.
+	ClientWorkBuddy = "workbuddy"
 )
 
 // Input is the common subset of a pre-tool hook payload.
@@ -143,7 +148,7 @@ type RenderResult struct {
 
 // ProjectEnforced is the decision the hook process actually applies.
 // Codex and Gemini have no fail-closed ask, so STEP_UP and DEFER become DENY.
-// Claude Code and CodeBuddy can ask, so STEP_UP stays STEP_UP. DEFER is deny
+// Claude Code, CodeBuddy, and WorkBuddy can ask, so STEP_UP stays STEP_UP. DEFER is deny
 // on every adapter in this MVP.
 func ProjectEnforced(client string, d decision.Decision) decision.Decision {
 	switch client {
@@ -151,7 +156,7 @@ func ProjectEnforced(client string, d decision.Decision) decision.Decision {
 		if d == decision.StepUp || d == decision.Defer {
 			return decision.Deny
 		}
-	case ClientClaude, ClientCodeBuddy:
+	case ClientClaude, ClientCodeBuddy, ClientWorkBuddy:
 		if d == decision.Defer {
 			return decision.Deny
 		}
@@ -182,6 +187,8 @@ func Render(client string, in Input, resp Response) (RenderResult, error) {
 		return renderGemini(in, enforced, reason, resp.Rewrite)
 	case ClientCodeBuddy:
 		return renderCodeBuddy(in, enforced, reason, resp.Rewrite)
+	case ClientWorkBuddy:
+		return renderWorkBuddy(in, enforced, reason, resp.Rewrite)
 	default:
 		return RenderResult{}, fmt.Errorf("hook: unknown client %q", client)
 	}
@@ -299,6 +306,47 @@ func renderCodeBuddy(in Input, d decision.Decision, reason, rewrite string) (Ren
 		spec["permissionDecisionReason"] = reason
 	}
 	return marshalOut(map[string]any{"continue": cont, "hookSpecificOutput": spec})
+}
+
+func renderWorkBuddy(in Input, d decision.Decision, reason, rewrite string) (RenderResult, error) {
+	// Checked against the CLI bundled in WorkBuddy 5.5.6 and WorkBuddy AI
+	// 5.9.4 (app.asar.unpacked/cli/dist), see docs/workbuddy.md:
+	//   - ALLOW is empty stdout with exit 0. permissionDecision "allow" would
+	//     bypass WorkBuddy's own permission prompt and sandbox approval; an
+	//     empty answer leaves them in place, so ReinsAARM only ever tightens.
+	//   - "continue": false sets preventContinuation and ends the whole
+	//     agent turn, so DENY never sends it. A deny blocks this tool call and
+	//     hands permissionDecisionReason back to the model.
+	//   - ask shows WorkBuddy's confirmation dialog. In headless (-p) runs
+	//     WorkBuddy auto-denies an ask because there is no approval UI.
+	//   - The PreToolUse result reads hookSpecificOutput.updatedInput; the
+	//     command-hook parser also copies modifiedInput. MODIFY sends both
+	//     with the full input.
+	switch d {
+	case decision.Allow:
+		return RenderResult{ExitCode: 0}, nil
+	case decision.Modify:
+		full := rewrittenInput(in.ToolInput, rewrite)
+		return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "allow",
+			"permissionDecisionReason": reason,
+			"updatedInput":             full,
+			"modifiedInput":            full,
+		}})
+	case decision.StepUp:
+		return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "ask",
+			"permissionDecisionReason": reason,
+		}})
+	default:
+		return marshalOut(map[string]any{"hookSpecificOutput": map[string]any{
+			"hookEventName":            "PreToolUse",
+			"permissionDecision":       "deny",
+			"permissionDecisionReason": reason,
+		}})
+	}
 }
 
 func rewrittenInput(in map[string]any, command string) map[string]any {

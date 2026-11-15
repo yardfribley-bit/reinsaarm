@@ -2,11 +2,15 @@
 package install
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
+
+	"github.com/yardfribley-bit/reinsaarm/internal/workbuddy"
 )
 
 // Target is one CLI.
@@ -24,6 +28,9 @@ func Targets() map[string]Target {
 		"codex":       {Name: "codex", RelPath: filepath.Join(".codex", "hooks.json"), UserPath: filepath.Join(".codex", "hooks.json")},
 		"gemini":      {Name: "gemini", RelPath: filepath.Join(".gemini", "settings.json"), UserPath: filepath.Join(".gemini", "settings.json")},
 		"codebuddy":   {Name: "codebuddy", RelPath: filepath.Join(".codebuddy", "settings.json"), UserPath: filepath.Join(".codebuddy", "settings.json")},
+		// WorkBuddy reads project hooks from .codebuddy/settings.json too. Its
+		// user file is <data folder>/settings.json; see UserConfigDir.
+		"workbuddy": {Name: "workbuddy", RelPath: filepath.Join(".codebuddy", "settings.json"), UserPath: filepath.Join(".workbuddy", "settings.json")},
 	}
 }
 
@@ -34,6 +41,11 @@ type Plan struct {
 	Note    string
 }
 
+// UserConfigDir overrides the WorkBuddy user settings directory for
+// --scope user. Empty means $WORKBUDDY_CONFIG_DIR, then every existing
+// ~/.workbuddy-ai and ~/.workbuddy.
+var UserConfigDir string
+
 // Plans builds the files for one client. scope is "project" or "user".
 // stateHome and socket are baked into the hook command so Codex does not
 // depend on an inherited REINSAARM_HOME.
@@ -42,12 +54,27 @@ func Plans(client, bin, scope, projectDir, home, stateHome, socket string) ([]Pl
 	if !ok {
 		return nil, fmt.Errorf("install: unknown client %q", client)
 	}
+	if client == "workbuddy" && scope == "user" {
+		var plans []Plan
+		for _, dir := range workbuddy.UserConfigDirs(home, UserConfigDir) {
+			p, err := planFile(client, filepath.Join(dir, "settings.json"), bin, stateHome, socket)
+			if err != nil {
+				return nil, err
+			}
+			plans = append(plans, p...)
+		}
+		return plans, nil
+	}
 	var path string
 	if scope == "user" {
 		path = filepath.Join(home, t.UserPath)
 	} else {
 		path = filepath.Join(projectDir, t.RelPath)
 	}
+	return planFile(client, path, bin, stateHome, socket)
+}
+
+func planFile(client, path, bin, stateHome, socket string) ([]Plan, error) {
 	command := HookCommand(bin, client, stateHome, socket)
 	var doc map[string]any
 	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) > 0 {
@@ -65,6 +92,8 @@ func Plans(client, bin, scope, projectDir, home, stateHome, socket string) ([]Pl
 		mergeGemini(doc, command)
 	case "codebuddy":
 		mergeCodeBuddy(doc, command)
+	case "workbuddy":
+		mergeWorkBuddy(doc, command)
 	default:
 		mergeClaude(doc, command)
 	}
@@ -73,7 +102,11 @@ func Plans(client, bin, scope, projectDir, home, stateHome, socket string) ([]Pl
 		return nil, err
 	}
 	raw = append(raw, '\n')
-	plans := []Plan{{Path: path, Payload: raw, Note: "hook command reads stdin and writes the CLI's decision JSON"}}
+	note := "hook command reads stdin and writes the CLI's decision JSON"
+	if client == "workbuddy" {
+		note = "WorkBuddy snapshots hooks at session start: start a new task (or restart WorkBuddy) and review the hook in /hooks if it asks. Other PreToolUse hooks in this file still run in parallel."
+	}
+	plans := []Plan{{Path: path, Payload: raw, Note: note}}
 	if client == "codex" {
 		snippet := codexRequirements(command)
 		plans = append(plans, Plan{
@@ -85,17 +118,41 @@ func Plans(client, bin, scope, projectDir, home, stateHome, socket string) ([]Pl
 	return plans, nil
 }
 
-// Apply writes plans to disk.
+// Apply writes plans to disk. An existing file whose content changes is
+// first copied to <path>.bak.reinsaarm-<timestamp> with its original mode,
+// and the new file keeps that mode. Backups are listed in the result.
 func Apply(plans []Plan) error {
+	_, err := ApplyWithBackup(plans)
+	return err
+}
+
+// ApplyWithBackup is Apply and returns the backup paths it wrote.
+func ApplyWithBackup(plans []Plan) ([]string, error) {
+	var backups []string
+	stamp := time.Now().Format("20060102150405")
 	for _, p := range plans {
 		if err := os.MkdirAll(filepath.Dir(p.Path), 0o755); err != nil {
-			return err
+			return backups, err
 		}
-		if err := os.WriteFile(p.Path, p.Payload, 0o644); err != nil {
-			return err
+		mode := os.FileMode(0o644)
+		if old, err := os.ReadFile(p.Path); err == nil {
+			if st, err := os.Stat(p.Path); err == nil {
+				mode = st.Mode().Perm()
+			}
+			if bytes.Equal(old, p.Payload) {
+				continue
+			}
+			bak := p.Path + ".bak.reinsaarm-" + stamp
+			if err := os.WriteFile(bak, old, mode); err != nil {
+				return backups, fmt.Errorf("install: backup %s: %w", p.Path, err)
+			}
+			backups = append(backups, bak)
+		}
+		if err := os.WriteFile(p.Path, p.Payload, mode); err != nil {
+			return backups, err
 		}
 	}
-	return nil
+	return backups, nil
 }
 
 // HookCommand is the argv string stored in a CLI settings file.
@@ -193,6 +250,29 @@ func mergeCodeBuddy(doc map[string]any, command string) {
 		hooks["PreToolUse"] = list
 		return
 	}
+	list = append(list, map[string]any{
+		"matcher": "*",
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": command,
+				"timeout": 15,
+			},
+		},
+	})
+	hooks["PreToolUse"] = list
+}
+
+func mergeWorkBuddy(doc map[string]any, command string) {
+	hooks := object(doc, "hooks")
+	list := array(hooks, "PreToolUse")
+	if replaced := replaceCommand(list, "reinsaarm hook --client workbuddy", command); replaced {
+		hooks["PreToolUse"] = list
+		return
+	}
+	// WorkBuddy's matcher is a regex tested against tool_name; "*" is
+	// special-cased to match every tool, including DeferExecuteTool and
+	// mcp__ tools. timeout is in seconds.
 	list = append(list, map[string]any{
 		"matcher": "*",
 		"hooks": []any{

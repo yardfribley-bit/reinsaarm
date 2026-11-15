@@ -125,7 +125,7 @@ let rendered = "";
 let sim = {kind: "shell", agent: "", main: "", server: "", tool: "", args: "", result: null, error: ""};
 
 function agentName(c) {
-  const m = {codex:"Codex", "claude-code":"Claude Code", gemini:"Gemini", codebuddy:"CodeBuddy", reinsaarm:"系统", sensor:"系统", egress:"系统", demo:"系统"};
+  const m = {codex:"Codex", "claude-code":"Claude Code", gemini:"Gemini", codebuddy:"CodeBuddy", workbuddy:"WorkBuddy", reinsaarm:"系统", sensor:"系统", egress:"系统", demo:"系统"};
   return m[c] || c || "系统";
 }
 function chip(d) {
@@ -287,7 +287,7 @@ const SIM_KINDS = [
   ["shell", "shell 命令"], ["file_read", "读文件 file_read"], ["file_write", "写文件 file_write"],
   ["file_edit", "改文件 file_edit"], ["web_fetch", "网络请求 web_fetch"], ["mcp", "MCP 调用"],
   ["payload", "原始钩子 JSON"]];
-const SIM_AGENTS = [["", "不指定 Agent"], ["codex", "Codex"], ["claude-code", "Claude Code"], ["gemini", "Gemini CLI"], ["codebuddy", "CodeBuddy"]];
+const SIM_AGENTS = [["", "不指定 Agent"], ["codex", "Codex"], ["claude-code", "Claude Code"], ["gemini", "Gemini CLI"], ["codebuddy", "CodeBuddy"], ["workbuddy", "WorkBuddy"]];
 function simPlaceholder(k) {
   return {shell: "git push --force origin main", file_read: "~/.ssh/id_rsa", file_write: "src/main.go",
     file_edit: ".github/workflows/ci.yml", web_fetch: "https://example.com/docs", mcp: "", payload: ""}[k] || "";

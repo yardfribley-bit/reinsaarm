@@ -29,9 +29,10 @@ The design follows CSA Autonomous Action Runtime Management (AARM) v1.0 Core req
 | Codex CLI | `PreToolUse` | No `ask`. Enforced as `DENY` plus an approval id. | Yes. Codex 0.151.0 on macOS, 2026-11-15. |
 | Claude Code | `PreToolUse` | `permissionDecision: "ask"` | Adapter only. Checked against public docs on 2026-11-15, not run inside the CLI. |
 | Gemini CLI | `BeforeTool` | No `ask`. Enforced as `DENY` plus an approval id. | Adapter only. Same date, not run inside the CLI. |
-| CodeBuddy / WorkBuddy | `PreToolUse` | `permissionDecision: "ask"` | Adapter only. Public docs confirm the hook; not run in a live IDE. The in-process SDK is not embedded. |
+| CodeBuddy (IDE) | `PreToolUse` | `permissionDecision: "ask"` | Adapter only. Public docs confirm the hook; not run in a live IDE. The in-process SDK is not embedded. |
+| WorkBuddy / WorkBuddy AI (desktop) | `PreToolUse` (`--client workbuddy`) | `permissionDecision: "ask"` | Partly. Hook schema read from the CLI bundled in WorkBuddy 5.5.6 and WorkBuddy AI 5.9.4; the installed hook, sidecar, receipts and fail-closed exit were run on macOS with WorkBuddy-shaped payloads. A WorkBuddy session driving the hook was **not** run: the bundled CLI needs its own `/login`. |
 
-The receipt keeps the policy decision (`STEP_UP`) in `decision` and stores what the hook actually applied in `enforced_decision`. Hook field notes are in [docs/hooks.md](docs/hooks.md). The CodeBuddy finding is in [docs/workbuddy.md](docs/workbuddy.md).
+The receipt keeps the policy decision (`STEP_UP`) in `decision` and stores what the hook actually applied in `enforced_decision`. Hook field notes are in [docs/hooks.md](docs/hooks.md). The WorkBuddy and CodeBuddy findings are in [docs/workbuddy.md](docs/workbuddy.md).
 
 ## Quick start
 
@@ -56,7 +57,7 @@ cd /path/to/your-project
 /path/to/reinsaarm/bin/reinsaarm console    # http://127.0.0.1:8787/?token=...
 ```
 
-`install-hooks` also accepts `claude-code`, `gemini`, or `codebuddy`. `--trust` and `doctor` are Codex-specific: Codex will not run an unmanaged project hook until `trusted_hash` and the project `trust_level` are set. `--trust` writes both into `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). You can also trust the hook from Codex `/hooks`.
+`install-hooks` also accepts `claude-code`, `gemini`, `codebuddy`, or `workbuddy` (see [docs/workbuddy.md](docs/workbuddy.md); `reinsaarm doctor --client workbuddy` checks it). `--trust` and `doctor` are Codex-specific: Codex will not run an unmanaged project hook until `trusted_hash` and the project `trust_level` are set. `--trust` writes both into `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). You can also trust the hook from Codex `/hooks`.
 
 Alternatively:
 
@@ -94,10 +95,10 @@ Every hook payload is first normalized into one action model: a kind (`shell`, `
 
 | Kind | Example tools | Rules that apply |
 |---|---|---|
-| `file_read` | Claude `Read` `Glob` `Grep`, Gemini `read_file` `read_many_files`, CodeBuddy `read_file` | `R-CRED-PATH` |
-| `file_write` / `file_edit` | Claude `Write` `Edit` `MultiEdit`, Gemini `write_file` `replace`, Codex `apply_patch`, CodeBuddy `write_to_file` `replace_in_file` | `R-CRED-PATH`, `R-WRITE-OUTSIDE`, `R-CI-MUTATION` |
-| `web_fetch` | Claude `WebFetch`, Gemini `web_fetch` | `R-EGRESS-HOST`, `R-EGRESS-METADATA` |
-| `mcp` | `mcp__<server>__<tool>`; Gemini `mcp_<server>_<tool>` with `mcp_context` | `spec.mcp.rules` by server / tool glob, plus `R-CRED-PATH` and egress rules on path- and URL-like arguments, and the shell rules when the tool takes a `command` |
+| `file_read` | Claude / WorkBuddy `Read` `Glob` `Grep`, WorkBuddy `ViewImage`, Gemini `read_file` `read_many_files`, CodeBuddy `read_file` | `R-CRED-PATH` |
+| `file_write` / `file_edit` | Claude / WorkBuddy `Write` `Edit` `MultiEdit`, Gemini `write_file` `replace`, Codex `apply_patch`, CodeBuddy `write_to_file` `replace_in_file` | `R-CRED-PATH`, `R-WRITE-OUTSIDE`, `R-CI-MUTATION` |
+| `web_fetch` | Claude / WorkBuddy `WebFetch`, Gemini `web_fetch` | `R-EGRESS-HOST`, `R-EGRESS-METADATA` |
+| `mcp` | `mcp__<server>__<tool>`; Gemini `mcp_<server>_<tool>` with `mcp_context`; WorkBuddy `DeferExecuteTool{toolName, params}` is unwrapped to the inner tool first | `spec.mcp.rules` by server / tool glob, plus `R-CRED-PATH` and egress rules on path- and URL-like arguments, and the shell rules when the tool takes a `command` |
 | `other` | any unknown tool | `R-CRED-PATH` and egress rules on path- and URL-like arguments |
 
 A Codex `apply_patch` is a file edit: only its `*** Update File:` style headers count, and the patch body is not parsed as shell. An MCP call that matches no rule is allowed. The default profile ships no MCP name rules; add your own, for example `{server: filesystem, tool: "write_*", decision: step_up}`. These rows are covered by unit tests against each CLI's documented payload; only the Codex shell path has been run live.
@@ -138,7 +139,7 @@ An optional judge speaks the OpenAI-compatible `POST /chat/completions` API. It 
 This is early **0.1.0**. Read these before you rely on it.
 
 - The console is loopback-only and gated by a random token in the URL and cookie. Do not share that URL. The process prints `http://127.0.0.1:8787/?token=...`.
-- Codex has no `ask`, so `STEP_UP` is enforced as `DENY` plus an approval id. Gemini is the same. Claude Code and CodeBuddy project `STEP_UP` as `ask`.
+- Codex has no `ask`, so `STEP_UP` is enforced as `DENY` plus an approval id. Gemini is the same. Claude Code, CodeBuddy, and WorkBuddy project `STEP_UP` as `ask`. WorkBuddy auto-denies an `ask` in headless `-p` runs.
 - A missing hook binary (exit 127), a hook that never starts, a timeout, or a status the CLI does not treat as a block fails open. Claude Code fails closed only when `onFailure` is `block` (documented for v2.1.295+).
 - A confirmation clicked inside Claude Code is not written back into the hash chain. The bound approval is `reinsaarm approve`.
 - DNS exfiltration is a `dig` / `nslookup` heuristic, not a DNS proxy.
@@ -147,6 +148,7 @@ This is early **0.1.0**. Read these before you rely on it.
 - The judge is off by default. There is no central control plane, mTLS, OpenTelemetry, or Windows hook installer.
 - MCP tool descriptions are not part of the documented pre-tool payload. The poison rule runs only when a caller supplies `mcp_description` or `mcp_definition_hash`.
 - MCP servers have no shared argument schema. Path and host checks on MCP and unknown tools read common argument names (`path`, `file_path`, `url`, `endpoint`, …) only. Gemini's `mcp_<server>_<tool>` name is ambiguous when the server name has an underscore; the adapter prefers `mcp_context.server_name`.
+- WorkBuddy: an `ALLOW` is an empty answer, so WorkBuddy's own permission prompt and sandbox still apply; ReinsAARM only tightens. WorkBuddy treats any non-zero exit other than 2 (including a missing hook binary) as allow, and it snapshots hooks when a session starts. Other `PreToolUse` hooks in the same settings file run in parallel.
 - Hosted tools that never reach the local hook (for example Codex `WebSearch`) are not seen.
 - The default network allowlist does not include private registries.
 - `identity.key` is mode `0600` and is not part of the source tree.
@@ -158,9 +160,10 @@ See [docs/cli.md](docs/cli.md) for flags and notes. The binary's usage is:
 ```
 reinsaarm init [--home DIR]
 reinsaarm run [--home DIR] [--socket PATH] [--web ADDR] [--egress ADDR]
-reinsaarm hook --client claude-code|codex|gemini|codebuddy
+reinsaarm hook --client claude-code|codex|gemini|codebuddy|workbuddy
 reinsaarm install-hooks <client> [--scope project|user] [--dest DIR] [--trust]
-reinsaarm doctor [--dest DIR]
+                      [--config-dir DIR]   (workbuddy --scope user)
+reinsaarm doctor [--client codex|workbuddy] [--dest DIR]
 reinsaarm console [--addr 127.0.0.1:8787] [--dest DIR]
 reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
 reinsaarm policy test [--kind K] [--path P] [--url U] [--server S --tool T]
@@ -173,7 +176,7 @@ reinsaarm bench
 
 ## Status
 
-0.1.0 is the developer-agent MVP (PRD milestone M0): sidecar, four hook adapters, default remit, five decisions, hash-chained receipts, demo, and a local console. Only Codex 0.151 has a live acceptance report.
+0.1.0 is the developer-agent MVP (PRD milestone M0): sidecar, five hook adapters, default remit, five decisions, hash-chained receipts, demo, and a local console. Only Codex 0.151 has a live acceptance report.
 
 Console follow-ups from that run, not yet fixed: pills that say "untrusted" when hooks are only missing; thin empty states on the approvals and audit pages; a cramped, read-only policy page that does not name the remit file; a full redraw about every two seconds; English reason text in a narrow column; and health pills that follow only the `--dest` project. Details are in the [acceptance report](docs/acceptance/2026-11-15-codex-0.151.md).
 
@@ -200,13 +203,14 @@ internal/policy          remit compiler and fast path
 internal/judge           OpenAI-compatible judge client
 internal/ledger          hash chain and Ed25519 signatures
 internal/daemon          unix socket, optional web view, egress, sensor
-internal/hooks           Codex, Claude Code, Gemini CLI, CodeBuddy adapters
+internal/hooks           Codex, Claude Code, Gemini CLI, CodeBuddy, WorkBuddy adapters
+internal/workbuddy       WorkBuddy settings locations and hook check
 examples/demo/demo.sh    the three attacks
 examples/profiles        developer and CI remits
 examples/enterprise      managed-hook snippets
 docs/PRD-dev-agent.md    product requirements (Chinese)
 docs/hooks.md            hook field notes and what was not executed
-docs/workbuddy.md        WorkBuddy / CodeBuddy finding
+docs/workbuddy.md        WorkBuddy / CodeBuddy hook findings and install
 docs/cli.md              command reference
 docs/acceptance/         Codex 0.151 live acceptance report (2026-11-15)
 ```
@@ -217,7 +221,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 ## 中文简介
 
-ReinsAARM 是给编程 Agent 用的本机运行时安全层。它在 Codex CLI、Claude Code、Gemini CLI 和 CodeBuddy 执行工具之前做允许、拒绝、改写或转审批，并把每次决定写成带 Ed25519 签名的哈希链回执。
+ReinsAARM 是给编程 Agent 用的本机运行时安全层。它在 Codex CLI、Claude Code、Gemini CLI、CodeBuddy 和 WorkBuddy 执行工具之前做允许、拒绝、改写或转审批，并把每次决定写成带 Ed25519 签名的哈希链回执。
 
 默认策略会拒绝读取凭据路径、拦住白名单以外的 `curl | sh`、拒绝受保护分支的 force-push，并把发往 `main` 的普通 push 变成一次性审批。本地控制台只监听 `127.0.0.1`。
 

@@ -43,7 +43,7 @@ func cmdPolicyTest(args []string, stdin io.Reader, stdout io.Writer) error {
 	server := fs.String("server", "", "MCP server for --kind mcp")
 	tool := fs.String("tool", "", "MCP tool for --kind mcp, or the tool name for --kind other")
 	argsJSON := fs.String("args", "", "JSON object of tool arguments for --kind mcp|other")
-	agent := fs.String("agent", "", "codex|claude-code|gemini|codebuddy: show how that agent's hook enforces the result")
+	agent := fs.String("agent", "", "codex|claude-code|gemini|codebuddy|workbuddy: show how that agent's hook enforces the result")
 	payload := fs.String("json", "", "raw PreToolUse hook payload: JSON text, @file, or - for stdin")
 	cwd := fs.String("cwd", "", "workspace directory (default: current directory)")
 	output := fs.String("output", "text", "text|json")

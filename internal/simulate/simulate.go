@@ -77,10 +77,12 @@ func AgentName(s string) (string, error) {
 		return hooks.ClientClaude, nil
 	case "gemini", "gemini-cli":
 		return hooks.ClientGemini, nil
-	case "codebuddy", "workbuddy":
+	case "codebuddy":
 		return hooks.ClientCodeBuddy, nil
+	case "workbuddy", "workbuddy-ai":
+		return hooks.ClientWorkBuddy, nil
 	default:
-		return "", fmt.Errorf("unknown agent %q (codex, claude-code, gemini, codebuddy)", s)
+		return "", fmt.Errorf("unknown agent %q (codex, claude-code, gemini, codebuddy, workbuddy)", s)
 	}
 }
 

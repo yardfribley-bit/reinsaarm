@@ -27,6 +27,7 @@ import (
 	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
 	"github.com/yardfribley-bit/reinsaarm/internal/policy"
 	"github.com/yardfribley-bit/reinsaarm/internal/simulate"
+	"github.com/yardfribley-bit/reinsaarm/internal/workbuddy"
 )
 
 //go:embed static
@@ -356,6 +357,7 @@ func (s *Server) policyView(w http.ResponseWriter, r *http.Request) {
 			{"client": "Claude Code", "allow": "permissionDecision allow", "step_up": "ask", "note": "onFailure=block 时启动失败才阻断"},
 			{"client": "Gemini CLI", "allow": "decision allow", "step_up": "deny + 审批号", "note": "非 0/2 退出码会放行"},
 			{"client": "CodeBuddy", "allow": "permissionDecision allow", "step_up": "ask", "note": "改写字段是 modifiedInput"},
+			{"client": "WorkBuddy", "allow": "空 stdout，退出码 0（保留 WorkBuddy 自己的确认）", "step_up": "ask", "note": "deny 不带 continue:false；改写同时写 updatedInput/modifiedInput；拆包 DeferExecuteTool"},
 		},
 	})
 }
@@ -513,6 +515,9 @@ func (s *Server) healthItems() []healthItem {
 		}
 	}
 	items = append(items, healthItem{ID: "audit", Name: "审计链", OK: auditOK, Detail: auditDetail})
+	if it, ok := workBuddyHealth(project); ok {
+		items = append(items, it)
+	}
 	items = append(items, healthItem{
 		ID: "adapter", Name: "适配器退出约定", OK: true,
 		Detail: "Codex ALLOW 无 stdout；STEP_UP 执行为 DENY；exit 2 必写 stderr",
@@ -613,3 +618,44 @@ func OpenPublic(path string) (ed25519.PublicKey, error) {
 
 // Drain copies a body for tests.
 func Drain(r io.Reader) ([]byte, error) { return io.ReadAll(r) }
+
+// workBuddyHealth reports the WorkBuddy hook when WorkBuddy is present on
+// this machine (a data folder exists) or a project file names the hook.
+func workBuddyHealth(project string) (healthItem, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return healthItem{}, false
+	}
+	present := false
+	for _, f := range workbuddy.DataFolders {
+		if st, err := os.Stat(filepath.Join(home, f)); err == nil && st.IsDir() {
+			present = true
+		}
+	}
+	paths := workbuddy.ProjectSettings(project)
+	for _, d := range workbuddy.UserConfigDirs(home, "") {
+		paths = append(paths, filepath.Join(d, "settings.json"))
+	}
+	var where []string
+	ok := false
+	for _, p := range paths {
+		st := workbuddy.Inspect(p)
+		if st.Installed {
+			present = true
+			if st.CoversAll && st.Disabled == "" {
+				ok = true
+				where = append(where, p)
+			} else {
+				where = append(where, p+"（matcher 不全或 hooks 被禁用）")
+			}
+		}
+	}
+	if !present {
+		return healthItem{}, false
+	}
+	detail := "未安装：reinsaarm install-hooks workbuddy"
+	if len(where) > 0 {
+		detail = strings.Join(where, "；")
+	}
+	return healthItem{ID: "workbuddy_hook", Name: "WorkBuddy 钩子", OK: ok, Detail: detail}, true
+}
