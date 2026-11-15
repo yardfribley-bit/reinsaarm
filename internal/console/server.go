@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yardfribley-bit/reinsaarm/internal/approve"
@@ -56,6 +57,8 @@ type Config struct {
 type Server struct {
 	cfg   Config
 	token string
+	// policyMu serializes console edits of the profile file.
+	policyMu sync.Mutex
 }
 
 // New validates the bind address and token.
@@ -108,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/approvals/", s.approvalAction)
 	mux.HandleFunc("/api/policy", s.policyView)
 	mux.HandleFunc("/api/policy/test", s.policyTest)
+	mux.HandleFunc("/api/policy/mcp-rules", s.mcpRules)
 	mux.HandleFunc("/api/audit/verify", s.verify)
 	mux.HandleFunc("/api/health", s.health)
 	mux.HandleFunc("/api/sessions", s.sessions)
@@ -244,7 +248,7 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 	var out []ledger.Receipt
 	for i := len(recs) - 1; i >= 0; i-- {
 		rec := recs[i]
-		if rec.EventType != "" && rec.EventType != "action.decision" && rec.EventType != "approval.granted" && rec.EventType != "approval.denied" {
+		if rec.EventType != "" && rec.EventType != "action.decision" && rec.EventType != "approval.granted" && rec.EventType != "approval.denied" && rec.EventType != "policy.changed" {
 			continue
 		}
 		if !matchFilter(filter, rec) {
@@ -373,6 +377,10 @@ func (s *Server) policyView(w http.ResponseWriter, r *http.Request) {
 		"protected_branches":  p.Spec.ProtectedBranches,
 		"credential_prefixes": p.Spec.Credentials.DenyPrefixes,
 		"allow_basenames":     p.Spec.Credentials.AllowBasenames,
+		"mcp_rules":           mcpRuleViews(p.Spec.MCP.Rules),
+		"console_rule_prefix": policy.ConsoleRulePrefix,
+		"path":                s.cfg.ProfilePath,
+		"version":             profileVersion(raw),
 		"yaml":                string(raw),
 		"adapters": []map[string]string{
 			{"client": "Codex", "allow": "空 stdout，退出码 0", "step_up": "deny + 审批号", "note": "不支持 ask；裸 allow 会被拒绝并放行"},
@@ -382,6 +390,19 @@ func (s *Server) policyView(w http.ResponseWriter, r *http.Request) {
 			{"client": "WorkBuddy", "allow": "空 stdout，退出码 0（保留 WorkBuddy 自己的确认）", "step_up": "ask", "note": "deny 不带 continue:false；改写同时写 updatedInput/modifiedInput；拆包 DeferExecuteTool"},
 		},
 	})
+}
+
+type mcpRuleView struct {
+	policy.MCPRule
+	Removable bool `json:"removable"`
+}
+
+func mcpRuleViews(rules []policy.MCPRule) []mcpRuleView {
+	out := []mcpRuleView{}
+	for _, r := range rules {
+		out = append(out, mcpRuleView{MCPRule: r, Removable: strings.HasPrefix(r.ID, policy.ConsoleRulePrefix)})
+	}
+	return out
 }
 
 // policyTest simulates one input against the profile on disk. It reads the

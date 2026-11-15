@@ -70,11 +70,15 @@ func (s *Server) activityOptions() activity.Options {
 type Server struct {
 	cfg Config
 
-	mu       sync.Mutex
-	eng      *policy.Engine
-	profile  *policy.Profile
-	loaded   time.Time
-	modTime  time.Time
+	mu      sync.Mutex
+	eng     *policy.Engine
+	profile *policy.Profile
+	loaded  time.Time
+	modTime time.Time
+	// fileInfo is the profile as last loaded. A console save replaces the
+	// file by rename, so a new inode or size also triggers a reload even
+	// when the mtime is unchanged at the filesystem's resolution.
+	fileInfo os.FileInfo
 	sessions map[string]*sessionState
 	seenFD   map[string]bool
 	// calls maps a pre-tool receipt to its later result, keyed by
@@ -363,7 +367,8 @@ func (s *Server) reload(force bool) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !force && st.ModTime().Equal(s.modTime) && s.eng != nil {
+	if !force && s.eng != nil && st.ModTime().Equal(s.modTime) && s.fileInfo != nil &&
+		os.SameFile(st, s.fileInfo) && st.Size() == s.fileInfo.Size() {
 		return nil
 	}
 	p, raw, err := policy.LoadFile(s.cfg.ProfilePath)
@@ -373,6 +378,7 @@ func (s *Server) reload(force bool) error {
 	s.profile = p
 	s.eng = policy.Compile(p, s.cfg.Home, raw)
 	s.modTime = st.ModTime()
+	s.fileInfo = st
 	s.loaded = time.Now()
 	return nil
 }
