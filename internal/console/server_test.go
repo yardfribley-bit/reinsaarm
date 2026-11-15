@@ -61,8 +61,8 @@ func TestPagesAndApprove(t *testing.T) {
 		t.Fatal(err)
 	}
 	res.Body.Close()
-	if res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status %d", res.StatusCode)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("loopback without token: %d", res.StatusCode)
 	}
 	res, err = http.Get(ts.URL + "/?token=tok")
 	if err != nil {

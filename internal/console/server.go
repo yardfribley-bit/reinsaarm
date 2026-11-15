@@ -1,5 +1,7 @@
 // Package console serves the local ReinsAARM web UI.
-// It binds to loopback, requires a random token, and embeds its static files.
+// It binds to loopback and embeds its static files. A request from a loopback
+// address skips the random token while the process is bound only to loopback.
+// Any other client still has to present the token.
 package console
 
 import (
@@ -92,8 +94,21 @@ func New(cfg Config) (*Server, error) {
 	return &Server{cfg: cfg, token: cfg.Token}, nil
 }
 
-// Token is the URL/cookie secret.
+// Token is the secret for a client that is not on loopback.
 func (s *Server) Token() string { return s.token }
+
+// OpenURL is the address to print and open. A loopback-only listener has no
+// token in the URL. Any other listen address still includes the token.
+func (s *Server) OpenURL(addr net.Addr) string {
+	hostport := s.cfg.Addr
+	if addr != nil && addr.String() != "" {
+		hostport = addr.String()
+	}
+	if bindIsLoopbackOnly(s.cfg.Addr) && bindIsLoopbackOnly(hostport) {
+		return "http://" + hostport + "/"
+	}
+	return "http://" + hostport + "/?token=" + s.token
+}
 
 // Handler is the authenticated mux.
 func (s *Server) Handler() http.Handler {
@@ -127,6 +142,9 @@ func (s *Server) Handler() http.Handler {
 
 // Listen binds the loopback address. Addr may use port 0.
 func (s *Server) Listen() (net.Listener, error) {
+	if err := requireLoopback(s.cfg.Addr); err != nil {
+		return nil, err
+	}
 	return net.Listen("tcp", s.cfg.Addr)
 }
 
@@ -145,6 +163,17 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 }
 
 func (s *Server) authorized(w http.ResponseWriter, r *http.Request) bool {
+	// Loopback clients of a loopback-only listener skip the token entirely,
+	// including a stale or wrong one. That is what makes the bare URL work
+	// with no login prompt. It is not a global disable: a non-loopback peer,
+	// or a listener that is not bound only to loopback, still needs a token.
+	// Forwarded headers are ignored; only the TCP peer and the bind address count.
+	if s.loopbackExempt(r) {
+		return true
+	}
+	if s.token == "" {
+		return false
+	}
 	q := r.URL.Query().Get("token")
 	if q == s.token {
 		http.SetCookie(w, &http.Cookie{
@@ -155,6 +184,53 @@ func (s *Server) authorized(w http.ResponseWriter, r *http.Request) bool {
 	}
 	c, err := r.Cookie("reinsaarm_token")
 	return err == nil && c.Value == s.token
+}
+
+// loopbackExempt reports whether this request may skip the console token.
+// Both must hold: the configured listen address is a loopback IP (so the
+// process is not bound to a wildcard or an external interface), and the
+// TCP peer is a loopback address. The connection's local address is not
+// enough on its own: a wildcard listener still sees 127.0.0.1 as the local
+// address of a local client, and that client must still present the token.
+func (s *Server) loopbackExempt(r *http.Request) bool {
+	return bindIsLoopbackOnly(s.cfg.Addr) && remoteIsLoopback(r.RemoteAddr)
+}
+
+// bindIsLoopbackOnly reports whether addr is host:port on a loopback IP.
+// A hostname is not loopback-only: it might resolve somewhere else.
+func bindIsLoopbackOnly(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	return ipIsLoopback(net.ParseIP(stripZone(host)))
+}
+
+// remoteIsLoopback reports whether the HTTP server's peer address is
+// loopback. Go reports IPv4 peers as 127.0.0.1:port and IPv6 peers as
+// [::1]:port. 127.0.0.0/8 and ::1 both count, including an IPv4-mapped
+// loopback address. An empty or unparseable address does not.
+func remoteIsLoopback(remote string) bool {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return false
+	}
+	host := remote
+	if h, _, err := net.SplitHostPort(remote); err == nil {
+		host = h
+	}
+	return ipIsLoopback(net.ParseIP(stripZone(host)))
+}
+
+func stripZone(host string) string {
+	if i := strings.IndexByte(host, '%'); i >= 0 {
+		return host[:i]
+	}
+	return host
+}
+
+func ipIsLoopback(ip net.IP) bool {
+	return ip != nil && ip.IsLoopback()
 }
 
 func (s *Server) page(w http.ResponseWriter, r *http.Request) {

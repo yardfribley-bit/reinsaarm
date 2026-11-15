@@ -458,7 +458,7 @@ func cmdConsole(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(os.Stderr, "console http://%s/?token=%s\n", ln.Addr().String(), srv.Token())
+	fmt.Fprintf(os.Stderr, "console %s\n", srv.OpenURL(ln.Addr()))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	return srv.Serve(ctx, ln)

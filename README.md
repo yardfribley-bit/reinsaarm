@@ -54,7 +54,7 @@ In another terminal, point the same binary at your project. `install-hooks` bake
 cd /path/to/your-project
 /path/to/reinsaarm/bin/reinsaarm install-hooks codex --trust
 /path/to/reinsaarm/bin/reinsaarm doctor
-/path/to/reinsaarm/bin/reinsaarm console    # http://127.0.0.1:8787/?token=...
+/path/to/reinsaarm/bin/reinsaarm console    # http://127.0.0.1:8787/
 ```
 
 `install-hooks` also accepts `claude-code`, `gemini`, `codebuddy`, or `workbuddy` (see [docs/workbuddy.md](docs/workbuddy.md); `reinsaarm doctor --client workbuddy` checks it). `--trust` and `doctor` are Codex-specific: Codex will not run an unmanaged project hook until `trusted_hash` and the project `trust_level` are set. `--trust` writes both into `~/.codex/config.toml` (or `$CODEX_HOME/config.toml`). You can also trust the hook from Codex `/hooks`.
@@ -67,7 +67,7 @@ reinsaarm init
 reinsaarm run
 ```
 
-`reinsaarm console` (alias `ui`) serves the local UI on `127.0.0.1` only. It prints a URL with a random token and sets the same token as a cookie. Static files are embedded; there is no CDN. Approving or denying in the UI takes the same path as `reinsaarm approve` and appends an `approval.granted` or `approval.denied` receipt.
+`reinsaarm console` (alias `ui`) serves the local UI on `127.0.0.1` only. Open it at http://127.0.0.1:8787/. While the process is bound only to loopback, that page needs no token in the URL and shows no login prompt. The process prints that URL. A random token still exists for a client that is not on loopback; local use does not depend on it or on a token file. Static files are embedded; there is no CDN. Approving or denying in the UI takes the same path as `reinsaarm approve` and appends an `approval.granted` or `approval.denied` receipt.
 
 State lives in `$REINSAARM_HOME` or `~/.reinsaarm`. Then `reinsaarm audit tail` and `reinsaarm audit verify`.
 
@@ -144,7 +144,7 @@ An optional judge speaks the OpenAI-compatible `POST /chat/completions` API. It 
 
 This is early **0.1.0**. Read these before you rely on it.
 
-- The console is loopback-only and gated by a random token in the URL and cookie. Do not share that URL. The process prints `http://127.0.0.1:8787/?token=...`.
+- The console listens on loopback (`127.0.0.1:8787` by default). Open it at http://127.0.0.1:8787/. A request from a loopback address (`127.0.0.1`, the rest of `127.0.0.0/8`, or `::1`) skips the token while the process is bound only to loopback, so there is no login prompt. The tradeoff is that any process on this machine can open the page and call the API, including approvals. A request that is not from loopback still needs the random token (query parameter or `reinsaarm_token` cookie). Binding to a non-loopback address is rejected. The process prints the bare URL.
 - Codex has no `ask`, so `STEP_UP` is enforced as `DENY` plus an approval id. Gemini is the same. Claude Code, CodeBuddy, and WorkBuddy project `STEP_UP` as `ask`. WorkBuddy auto-denies an `ask` in headless `-p` runs.
 - A missing hook binary (exit 127), a hook that never starts, a timeout, or a status the CLI does not treat as a block fails open. Claude Code fails closed only when `onFailure` is `block` (documented for v2.1.295+).
 - A confirmation clicked inside Claude Code is not written back into the hash chain. The bound approval is `reinsaarm approve`.
@@ -230,7 +230,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 
 ReinsAARM 是给编程 Agent 用的本机运行时安全层。它在 Codex CLI、Claude Code、Gemini CLI、CodeBuddy 和 WorkBuddy 执行工具之前做允许、拒绝、改写或转审批，并把每次决定写成带 Ed25519 签名的哈希链回执。
 
-默认策略会拒绝读取凭据路径、拦住白名单以外的 `curl | sh`、拒绝受保护分支的 force-push，并把发往 `main` 的普通 push 变成一次性审批。本地控制台只监听 `127.0.0.1`。
+默认策略会拒绝读取凭据路径、拦住白名单以外的 `curl | sh`、拒绝受保护分支的 force-push，并把发往 `main` 的普通 push 变成一次性审批。本地控制台只监听回环地址。在本机打开 http://127.0.0.1:8787/ 即可，地址里不需要令牌，也不会出现登录提示。进程只绑在回环地址上时，本机任何进程都能打开这个页面。
 
 文件读写、网络请求和 MCP 调用会先归一成统一的动作模型，凭据路径和外发网络规则对所有工具都生效，MCP 还可以按 server / tool 名配规则。`reinsaarm policy test`（控制台策略页也有测试框）可以在不执行、不写回执的情况下看某条命令或调用在当前策略下的结果。
 
