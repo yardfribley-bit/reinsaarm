@@ -11,12 +11,23 @@ import (
 )
 
 // Action is one tool call after normalization. The engine does not read the clock or the network.
+//
+// Kind is one of shell, file_read, file_write, file_edit, web_fetch, mcp, or
+// other. Command is set only when there is a shell line to analyse (shell
+// tools, and MCP tools that take a command argument). Body carries a
+// non-shell payload such as an apply_patch body; it is hashed for approvals
+// but never parsed as shell. See internal/normalize.
 type Action struct {
+	Client            string
 	Tool              string
 	Kind              string
 	Command           string
+	Body              string
 	Paths             []string
 	Hosts             []string
+	GitOps            []string
+	MCPServer         string
+	MCPTool           string
 	CWD               string
 	MCPDescription    string
 	MCPDefinitionHash string
@@ -63,6 +74,7 @@ type Engine struct {
 	confineWrites    bool
 	ciPaths          []string
 	mcpPins          map[string]string
+	mcpRules         []MCPRule
 }
 
 // Compile builds an engine. home is the developer home used to expand ~.
@@ -81,6 +93,7 @@ func Compile(p *Profile, home string, versionRaw []byte) *Engine {
 		networkMode:   p.Spec.Network.Mode,
 		confineWrites: p.Spec.Workspace.ConfineWrites,
 		mcpPins:       p.Spec.MCPPins,
+		mcpRules:      p.Spec.MCP.Rules,
 	}
 	for _, pfx := range p.Spec.Credentials.DenyPrefixes {
 		e.denyPrefixes = append(e.denyPrefixes, e.expand(pfx, ""))
@@ -230,7 +243,7 @@ func (e *Engine) Evaluate(a Action, c Context) Outcome {
 		}
 	}
 
-	if a.Kind == "file_write" {
+	if extract.IsWrite(a.Kind) {
 		for _, p := range a.Paths {
 			abs := e.expand(p, a.CWD)
 			if e.confineWrites && a.CWD != "" && outsideWorkspace(abs, a.CWD) && !e.isCredential(p, a.CWD) {
@@ -249,6 +262,11 @@ func (e *Engine) Evaluate(a Action, c Context) Outcome {
 		}
 		if pin, ok := e.mcpPins[a.Tool]; ok && a.MCPDefinitionHash != "" && pin != a.MCPDefinitionHash {
 			add("R-MCP-DEFINITION", decision.Defer, "mcp tool definition hash changed; quarantined", "")
+		}
+		for _, r := range e.mcpRules {
+			if r.Matches(a.MCPServer, a.MCPTool, a.Tool) {
+				add(r.ID, r.decision(), r.reasonText(), "")
+			}
 		}
 	}
 
@@ -317,7 +335,7 @@ func riskOf(a Action) string {
 	if a.Kind == "web_fetch" || a.Kind == "mcp" || len(a.Hosts) > 0 {
 		return "external"
 	}
-	if a.Kind == "file_write" {
+	if extract.IsWrite(a.Kind) {
 		return "write"
 	}
 	return "read"

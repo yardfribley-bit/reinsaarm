@@ -3,6 +3,7 @@ package ledger
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,5 +69,15 @@ func TestChainAndTamper(t *testing.T) {
 	_, problem, err = Verify(path, pub)
 	if err != nil || problem == nil {
 		t.Fatalf("reorder should fail, problem=%v err=%v", problem, err)
+	}
+}
+
+func TestReceiptWithoutResourcesKeepsOldShape(t *testing.T) {
+	b, err := json.Marshal(Receipt{Tool: "Bash"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "resources") {
+		t.Fatalf("empty resources must be omitted so old receipts re-hash identically: %s", b)
 	}
 }

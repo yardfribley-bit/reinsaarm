@@ -88,3 +88,14 @@ spec:
     minConfidence: 0.7
     promptVersion: judge-v1
   mcpPins: {}
+  # MCP calls are matched by server and tool name (globs). A call that matches
+  # no rule is allowed unless its arguments hit a credential path, a blocked
+  # host, or a poisoned description. Example:
+  #   rules:
+  #     - id: R-MCP-FS-WRITE
+  #       server: filesystem
+  #       tool: "write_*"
+  #       decision: step_up
+  #       reason: filesystem MCP writes need approval
+  mcp:
+    rules: []

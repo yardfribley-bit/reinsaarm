@@ -26,6 +26,7 @@ import (
 	"github.com/yardfribley-bit/reinsaarm/internal/identity"
 	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
 	"github.com/yardfribley-bit/reinsaarm/internal/policy"
+	"github.com/yardfribley-bit/reinsaarm/internal/simulate"
 )
 
 //go:embed static
@@ -44,6 +45,9 @@ type Config struct {
 	Project      string
 	CodexHome    string
 	Token        string
+	// Home expands ~ in policy paths for /api/policy/test. Default: the
+	// current user's home.
+	Home string
 }
 
 // Server is the HTTP handler. Tests use Handler without listening.
@@ -101,6 +105,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/approvals", s.approvals)
 	mux.HandleFunc("/api/approvals/", s.approvalAction)
 	mux.HandleFunc("/api/policy", s.policyView)
+	mux.HandleFunc("/api/policy/test", s.policyTest)
 	mux.HandleFunc("/api/audit/verify", s.verify)
 	mux.HandleFunc("/api/health", s.health)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -353,6 +358,44 @@ func (s *Server) policyView(w http.ResponseWriter, r *http.Request) {
 			{"client": "CodeBuddy", "allow": "permissionDecision allow", "step_up": "ask", "note": "改写字段是 modifiedInput"},
 		},
 	})
+}
+
+// policyTest simulates one input against the profile on disk. It reads the
+// profile only: no receipt, no approval, no sidecar call.
+func (s *Server) policyTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method", http.StatusMethodNotAllowed)
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		http.Error(w, "content-type must be application/json", http.StatusUnsupportedMediaType)
+		return
+	}
+	var in simulate.Input
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		http.Error(w, "bad json: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	p, raw, err := policy.LoadFile(s.cfg.ProfilePath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	home := s.cfg.Home
+	if home == "" {
+		home, _ = os.UserHomeDir()
+	}
+	if in.CWD == "" {
+		in.CWD = s.cfg.Project
+	}
+	res, err := simulate.Run(policy.Compile(p, home, raw), p, in)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, res)
 }
 
 func (s *Server) verify(w http.ResponseWriter, r *http.Request) {

@@ -6,7 +6,7 @@ func TestKindsAndHosts(t *testing.T) {
 	if Kind("run_shell_command") != "shell" || Kind("execute_command") != "shell" {
 		t.Fatal(Kind("run_shell_command"))
 	}
-	if Kind("read_file") != "file_read" || Kind("write_to_file") != "file_write" {
+	if Kind("read_file") != "file_read" || Kind("write_to_file") != "file_write" || Kind("replace") != "file_edit" {
 		t.Fatal("file kinds")
 	}
 	if Kind("mcp__srv__do") != "mcp" || Kind("mcp_srv_do") != "mcp" {

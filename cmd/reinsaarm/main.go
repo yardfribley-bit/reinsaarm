@@ -49,6 +49,8 @@ func main() {
 		err = cmdDecide(os.Args[2:])
 	case "bench":
 		err = cmdBench(os.Args[2:])
+	case "policy":
+		err = cmdPolicy(os.Args[2:])
 	case "doctor":
 		err = cmdDoctor(os.Args[2:])
 	case "console", "ui":
@@ -80,6 +82,8 @@ Usage:
   reinsaarm doctor [--dest DIR]
   reinsaarm console [--addr 127.0.0.1:8787] [--dest DIR]
   reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
+  reinsaarm policy test [--kind K] [--path P] [--url U] [--server S --tool T]
+                        [--args JSON] [--agent A] [--json PAYLOAD|-] [command...]
   reinsaarm approve <approval-id>
   reinsaarm audit verify
   reinsaarm audit tail [-n N]
@@ -378,6 +382,7 @@ func cmdConsole(args []string) error {
 		Addr: *addr, AuditPath: cfg.AuditLog, ApprovalPath: cfg.Approvals,
 		ProfilePath: cfg.Profile, IdentityKey: cfg.IdentityKey, ChainID: cfg.ChainID,
 		AgentID: cfg.AgentID, Socket: cfg.Socket, Project: project, CodexHome: codexConfigDir(),
+		Home: cfg.DeveloperHome,
 	})
 	if err != nil {
 		return err

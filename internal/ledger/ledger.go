@@ -20,35 +20,49 @@ import (
 // Receipt is one audit record. ReceiptHash and Signature are excluded from the
 // preimage. IdentityFP binds the receipt to the signing key (AARM R6).
 type Receipt struct {
-	Schema           string   `json:"schema"`
-	ChainID          string   `json:"chain_id"`
-	Seq              uint64   `json:"seq"`
-	PrevHash         string   `json:"prev_hash"`
-	EventID          string   `json:"event_id"`
-	AgentID          string   `json:"agent_id"`
-	IdentityFP       string   `json:"identity_fp"`
-	Client           string   `json:"client"`
-	SessionID        string   `json:"session_id"`
-	Tool             string   `json:"tool"`
-	Kind             string   `json:"kind"`
-	ActionDigest     string   `json:"action_digest"`
-	CommandPreview   string   `json:"command_preview"`
-	Decision         string   `json:"decision"`
-	EnforcedDecision string   `json:"enforced_decision"`
-	Tier             string   `json:"tier"`
-	RuleIDs          []string `json:"rule_ids"`
-	Reason           string   `json:"reason"`
-	PolicyVersion    string   `json:"policy_version"`
-	JudgeVerdict     string   `json:"judge_verdict,omitempty"`
-	JudgeModel       string   `json:"judge_model,omitempty"`
-	PromptVersion    string   `json:"prompt_version,omitempty"`
-	EventType        string   `json:"event_type"`
-	Degraded         bool     `json:"degraded"`
-	Shadow           bool     `json:"shadow"`
-	LatencyUS        int64    `json:"latency_us,omitempty"`
-	TS               string   `json:"ts"`
-	ReceiptHash      string   `json:"receipt_hash,omitempty"`
-	Signature        string   `json:"signature,omitempty"`
+	Schema     string `json:"schema"`
+	ChainID    string `json:"chain_id"`
+	Seq        uint64 `json:"seq"`
+	PrevHash   string `json:"prev_hash"`
+	EventID    string `json:"event_id"`
+	AgentID    string `json:"agent_id"`
+	IdentityFP string `json:"identity_fp"`
+	Client     string `json:"client"`
+	SessionID  string `json:"session_id"`
+	Tool       string `json:"tool"`
+	Kind       string `json:"kind"`
+	// Resources is what the normalized action touches. It is omitted when
+	// empty, so receipts written before it existed still verify.
+	Resources        *Resources `json:"resources,omitempty"`
+	ActionDigest     string     `json:"action_digest"`
+	CommandPreview   string     `json:"command_preview"`
+	Decision         string     `json:"decision"`
+	EnforcedDecision string     `json:"enforced_decision"`
+	Tier             string     `json:"tier"`
+	RuleIDs          []string   `json:"rule_ids"`
+	Reason           string     `json:"reason"`
+	PolicyVersion    string     `json:"policy_version"`
+	JudgeVerdict     string     `json:"judge_verdict,omitempty"`
+	JudgeModel       string     `json:"judge_model,omitempty"`
+	PromptVersion    string     `json:"prompt_version,omitempty"`
+	EventType        string     `json:"event_type"`
+	Degraded         bool       `json:"degraded"`
+	Shadow           bool       `json:"shadow"`
+	LatencyUS        int64      `json:"latency_us,omitempty"`
+	TS               string     `json:"ts"`
+	ReceiptHash      string     `json:"receipt_hash,omitempty"`
+	Signature        string     `json:"signature,omitempty"`
+}
+
+// Resources lists the paths, hosts, git operations, and MCP server/tool of one
+// normalized action. URLs are reduced to hosts so query-string tokens are not
+// stored.
+type Resources struct {
+	Paths     []string `json:"paths,omitempty"`
+	Hosts     []string `json:"hosts,omitempty"`
+	GitOps    []string `json:"git_ops,omitempty"`
+	MCPServer string   `json:"mcp_server,omitempty"`
+	MCPTool   string   `json:"mcp_tool,omitempty"`
 }
 
 // Ledger appends to a single file.

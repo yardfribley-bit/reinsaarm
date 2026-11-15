@@ -88,6 +88,31 @@ The embedded remit is `examples/profiles/developer.yaml`. These rows are from th
 
 The default remit also denies other credential prefixes (`~/.aws`, `~/.kube`, keychain paths, `.env` except `.env.example`), always denies cloud-metadata addresses, and requires approval for `rm -rf` outside the workspace and for `curl` / `wget` piped into a shell when the host *is* on the allowlist. Network mode is `strict`. CI runners can use `examples/profiles/ci-runner.yaml`, which sets `unattended: true` and enforces deny for approvals and defers. The receipt still records the original `STEP_UP`.
 
+### Beyond shell: file, web, and MCP tools
+
+Every hook payload is first normalized into one action model: a kind (`shell`, `file_read`, `file_write`, `file_edit`, `web_fetch`, `mcp`, `other`) plus the paths, hosts, git operations, and MCP server / tool it touches. The same rules then apply whichever tool the agent picked. Receipts record the kind and these resources.
+
+| Kind | Example tools | Rules that apply |
+|---|---|---|
+| `file_read` | Claude `Read` `Glob` `Grep`, Gemini `read_file` `read_many_files`, CodeBuddy `read_file` | `R-CRED-PATH` |
+| `file_write` / `file_edit` | Claude `Write` `Edit` `MultiEdit`, Gemini `write_file` `replace`, Codex `apply_patch`, CodeBuddy `write_to_file` `replace_in_file` | `R-CRED-PATH`, `R-WRITE-OUTSIDE`, `R-CI-MUTATION` |
+| `web_fetch` | Claude `WebFetch`, Gemini `web_fetch` | `R-EGRESS-HOST`, `R-EGRESS-METADATA` |
+| `mcp` | `mcp__<server>__<tool>`; Gemini `mcp_<server>_<tool>` with `mcp_context` | `spec.mcp.rules` by server / tool glob, plus `R-CRED-PATH` and egress rules on path- and URL-like arguments, and the shell rules when the tool takes a `command` |
+| `other` | any unknown tool | `R-CRED-PATH` and egress rules on path- and URL-like arguments |
+
+A Codex `apply_patch` is a file edit: only its `*** Update File:` style headers count, and the patch body is not parsed as shell. An MCP call that matches no rule is allowed. The default profile ships no MCP name rules; add your own, for example `{server: filesystem, tool: "write_*", decision: step_up}`. These rows are covered by unit tests against each CLI's documented payload; only the Codex shell path has been run live.
+
+Try any of them without running anything:
+
+```bash
+reinsaarm policy test "git push origin main" --agent codex
+reinsaarm policy test --kind file_read --path ~/.ssh/id_rsa
+reinsaarm policy test --kind mcp --server filesystem --tool read_file --args '{"path":"~/.aws/credentials"}'
+echo '{"tool_name":"read_file","tool_input":{"file_path":"~/.ssh/id_ed25519"}}' | reinsaarm policy test --agent gemini --json -
+```
+
+`policy test` prints the decision, the matched rule ids, and the reason. It reads the profile only: no receipt is written and no approval is created or used. The console's policy page has the same test box (`POST /api/policy/test`).
+
 ![Pending approval for git push origin main](docs/acceptance/img/2026-11-15/05a-pending-approvals.png)
 
 ![Audit chain after a one-time approval was granted and consumed](docs/acceptance/img/2026-11-15/05b-retry-allowed-audit.png)
@@ -121,6 +146,8 @@ This is early **0.1.0**. Read these before you rely on it.
 - The audit log has no external timestamp anchor. Swapping the log and the public key together forges history; pin `identity.pub` out of band.
 - The judge is off by default. There is no central control plane, mTLS, OpenTelemetry, or Windows hook installer.
 - MCP tool descriptions are not part of the documented pre-tool payload. The poison rule runs only when a caller supplies `mcp_description` or `mcp_definition_hash`.
+- MCP servers have no shared argument schema. Path and host checks on MCP and unknown tools read common argument names (`path`, `file_path`, `url`, `endpoint`, …) only. Gemini's `mcp_<server>_<tool>` name is ambiguous when the server name has an underscore; the adapter prefers `mcp_context.server_name`.
+- Hosted tools that never reach the local hook (for example Codex `WebSearch`) are not seen.
 - The default network allowlist does not include private registries.
 - `identity.key` is mode `0600` and is not part of the source tree.
 
@@ -136,6 +163,8 @@ reinsaarm install-hooks <client> [--scope project|user] [--dest DIR] [--trust]
 reinsaarm doctor [--dest DIR]
 reinsaarm console [--addr 127.0.0.1:8787] [--dest DIR]
 reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
+reinsaarm policy test [--kind K] [--path P] [--url U] [--server S --tool T]
+                      [--args JSON] [--agent A] [--json PAYLOAD|-] [command...]
 reinsaarm approve <approval-id>
 reinsaarm audit verify
 reinsaarm audit tail [-n N]
@@ -191,5 +220,7 @@ Apache-2.0. See [LICENSE](LICENSE).
 ReinsAARM 是给编程 Agent 用的本机运行时安全层。它在 Codex CLI、Claude Code、Gemini CLI 和 CodeBuddy 执行工具之前做允许、拒绝、改写或转审批，并把每次决定写成带 Ed25519 签名的哈希链回执。
 
 默认策略会拒绝读取凭据路径、拦住白名单以外的 `curl | sh`、拒绝受保护分支的 force-push，并把发往 `main` 的普通 push 变成一次性审批。本地控制台只监听 `127.0.0.1`。
+
+文件读写、网络请求和 MCP 调用会先归一成统一的动作模型，凭据路径和外发网络规则对所有工具都生效，MCP 还可以按 server / tool 名配规则。`reinsaarm policy test`（控制台策略页也有测试框）可以在不执行、不写回执的情况下看某条命令或调用在当前策略下的结果。
 
 目前只有 Codex 0.151 在 macOS 上做过实机验收。需求说明见 [docs/PRD-dev-agent.md](docs/PRD-dev-agent.md)，验收报告见 [docs/acceptance/2026-11-15-codex-0.151.md](docs/acceptance/2026-11-15-codex-0.151.md)。

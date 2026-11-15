@@ -40,6 +40,15 @@ type Input struct {
 	MCPDescription string `json:"mcp_description,omitempty"`
 	// MCPDefinitionHash is optional and not part of the documented hook schema.
 	MCPDefinitionHash string `json:"mcp_definition_hash,omitempty"`
+	// MCPContext is Gemini CLI's BeforeTool mcp_context (server_name,
+	// tool_name, transport details). Other CLIs do not send it.
+	MCPContext *MCPContext `json:"mcp_context,omitempty"`
+}
+
+// MCPContext is the part of Gemini's mcp_context the sidecar uses.
+type MCPContext struct {
+	ServerName string `json:"server_name,omitempty"`
+	ToolName   string `json:"tool_name,omitempty"`
 }
 
 // Request is what the hook sends to the sidecar.
@@ -53,6 +62,7 @@ type Request struct {
 	Input             map[string]any `json:"input,omitempty"`
 	MCPDescription    string         `json:"mcp_description,omitempty"`
 	MCPDefinitionHash string         `json:"mcp_definition_hash,omitempty"`
+	MCPContext        *MCPContext    `json:"mcp_context,omitempty"`
 }
 
 // Response is the sidecar decision.
@@ -99,6 +109,7 @@ func ToRequest(client string, in Input) Request {
 		Input:             in.ToolInput,
 		MCPDescription:    in.MCPDescription,
 		MCPDefinitionHash: in.MCPDefinitionHash,
+		MCPContext:        in.MCPContext,
 	}
 }
 
