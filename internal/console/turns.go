@@ -617,7 +617,12 @@ func classify(st *Step, sessCWD, home string) {
 			st.Category = "shell"
 		}
 	default:
-		st.Category = "other"
+		// Newer Codex builds call the built-in search "webrun" (kind other).
+		if webName.MatchString(head.Tool) {
+			st.Category = "web"
+		} else {
+			st.Category = "other"
+		}
 	}
 	if d != nil {
 		if d.EnforcedDecision == "DENY" || d.EnforcedDecision == "DEFER" {

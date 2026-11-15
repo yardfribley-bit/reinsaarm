@@ -136,7 +136,15 @@ func TestTriggerAutomationAndStatus(t *testing.T) {
 	c.add(ledger.Receipt{TurnID: "A", EventType: "prompt.submit", TS: ts(0), Activity: &ledger.Activity{Prompt: "x"}})
 	c.add(ledger.Receipt{TurnID: "A", EventType: "agent.stop", TS: ts(5), Activity: &ledger.Activity{Message: "ok", Trigger: "automation_heartbeat_scheduled", Originator: "Codex Desktop"}})
 	c.add(ledger.Receipt{TurnID: "B", EventType: "prompt.submit", TS: ts(10), Activity: &ledger.Activity{Prompt: "y", Originator: "codex_exec"}})
+	// Codex 0.169 built-in search: tool "webrun", kind other.
+	pre := c.add(ledger.Receipt{TurnID: "B", ToolUseID: "wr", Tool: "webrun", Kind: "other", Decision: "ALLOW", EnforcedDecision: "ALLOW",
+		RuleIDs: []string{"R-DEFAULT-ALLOW"}, EventType: "action.decision", TS: ts(11), Activity: &ledger.Activity{Query: "loopx"}})
+	c.add(ledger.Receipt{TurnID: "B", ToolUseID: "wr", RefSeq: pre, Tool: "webrun", Kind: "other", EventType: "tool.result", TS: ts(12),
+		Activity: &ledger.Activity{Output: "LoopX (https://github.com/loopx-project/loopx)"}})
 	turns := buildTurns(timeline(c.recs, "codex:s1"), false, "", opts())
+	if turns[1].Counts.Web != 1 || turns[1].Untrusted != 1 {
+		t.Fatalf("webrun %+v", turns[1].Counts)
+	}
 	if turns[0].Source != "automation" || turns[1].Source != "cli" || turns[1].Status != "running" {
 		t.Fatalf("%+v / %+v", turns[0], turns[1])
 	}

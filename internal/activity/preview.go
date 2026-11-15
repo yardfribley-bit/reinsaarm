@@ -171,12 +171,24 @@ func ResultLinks(text string) []ledger.Link {
 	return out
 }
 
-// lastTitle keeps the text after the last sentence break or marker, so a
-// title captured after other output is not prefixed by it.
+// lastTitle picks the title of a "Title (url)" result: the text after the
+// last line break or citation marker, without a trailing " · Site" suffix,
+// cut at the first ": " or sentence end.
 func lastTitle(s string) string {
-	for _, sep := range []string{"\n", "】", "] ", "。", ". "} {
+	for _, sep := range []string{"\n", "】", "\ue201", "] "} {
 		if i := strings.LastIndex(s, sep); i >= 0 {
 			s = s[i+len(sep):]
+		}
+	}
+	if i := strings.LastIndex(s, " · "); i > 0 {
+		s = s[:i]
+	}
+	if i := strings.Index(s, ": "); i > 0 && i < 160 {
+		return s[:i]
+	}
+	for _, sep := range []string{"。", ". "} {
+		if i := strings.Index(s, sep); i > 0 {
+			s = s[:i]
 		}
 	}
 	return s

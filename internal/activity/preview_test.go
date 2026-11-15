@@ -59,6 +59,10 @@ func TestResultLinks(t *testing.T) {
 	if links[0].URL != "https://gittrend.io/repo/loopx-project/loopx" || links[0].Title == "" {
 		t.Fatalf("titled %+v", links[0])
 	}
+	gh := ResultLinks("GitHub - loopx-project/loopx: Turn long-horizon goals into verifiable results. A local-first plane. · GitHub (https://github.com/loopx-project/loopx)\n\ue200cite\ue202turn0search0\ue201")
+	if len(gh) != 1 || gh[0].Title != "GitHub - loopx-project/loopx" {
+		t.Fatalf("title %+v", gh)
+	}
 	for _, l := range links {
 		if strings.Contains(l.URL, "SECRET") || strings.Contains(l.URL, "pw@") || strings.Contains(l.URL, "#") {
 			t.Fatalf("unsafe url kept: %s", l.URL)
