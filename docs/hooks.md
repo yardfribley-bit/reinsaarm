@@ -19,6 +19,7 @@ Exit 2 is the only non-zero status these CLIs treat as a block:
 | Codex | Blocks when `permissionDecision` is `deny` | Blocks | The tool call can continue. `permissionDecision: "ask"` is in this bucket: Codex parses it, marks the hook failed, and continues |
 | Gemini CLI | Blocks when `decision` is `deny` | Blocks (`stderr` is the reason) | Warning only; the tool call continues |
 | CodeBuddy IDE | Blocks when `permissionDecision` is `deny` and the process exits 0 | Blocks, and the docs say stdout is ignored | Continues. The page describes exit 1 and "other" as non-blocking. What a timeout does, beyond "the hook stops", is not stated |
+| WorkBuddy (bundled CLI) | Blocks when `hookSpecificOutput.permissionDecision` is `deny` | Blocks (`blockSource: "exit2"`, stderr is the message) | Allowed: `parseHookOutput` sets `allowed = true` for any other non-zero exit and only logs stderr |
 
 `install-hooks` therefore sets Claude Code `onFailure` to `block`, keeps every
 normal decision on exit 0, and uses exit 2 only when the sidecar is down.
@@ -64,7 +65,7 @@ Docs: <https://geminicli.com/docs/hooks/reference/> (page last-updated line: Apr
 
 ## CodeBuddy / WorkBuddy
 
-See [workbuddy.md](workbuddy.md). Short version: the IDE settings hook is real, it looks like Claude Code, and the rewrite field is `modifiedInput`, not `updatedInput`.
+See [workbuddy.md](workbuddy.md). Short version: the CodeBuddy IDE settings hook is real, looks like Claude Code, and documents `modifiedInput`. WorkBuddy has its own adapter (`--client workbuddy`): it embeds the CodeBuddy Code CLI, whose PreToolUse result reads `updatedInput` (the adapter sends both), treats `continue: false` as "end the whole turn" (the adapter never sends it), and wraps deferred and MCP tools in `DeferExecuteTool` (unwrapped before policy).
 
 ## Normalized action model
 
@@ -77,7 +78,7 @@ The hook forwards `tool_name`, `tool_input`, and (Gemini only) `mcp_context`. Th
 | `file_write` | `Write`, `write_file`, `write_to_file`, `create_file`, `delete_file` | same keys; file `content` is not scanned for hosts or paths |
 | `file_edit` | `Edit`, `MultiEdit`, `NotebookEdit`, `replace`, `replace_in_file`, `apply_patch` | same keys; for `apply_patch` only the patch header lines (`*** Update File:`, `*** Add File:`, `*** Delete File:`, `*** Move to:`, `+++ b/`, `--- a/`) |
 | `web_fetch` | `WebFetch`, `web_fetch`, `WebSearch`, `web_search`, `google_web_search` | hosts from `url`-like keys and Gemini's `prompt`; search queries have no target host |
-| `mcp` | `mcp__<server>__<tool>` (Claude Code, Codex, CodeBuddy), `mcp_<server>_<tool>` (Gemini), or any tool when Gemini sends `mcp_context` | server / tool from `mcp_context.server_name` / `tool_name` when present, else from the name; paths from `path`, `file_path`, `filename`, `file`, `dir`, `directory`, `source`, `destination`, …; hosts from `url`, `uri`, `endpoint`, `host`, `domain`, `*_url`; a `command` / `cmd` argument is analysed as shell |
+| `mcp` | `mcp__<server>__<tool>` (Claude Code, Codex, CodeBuddy, WorkBuddy; WorkBuddy usually sends it inside `DeferExecuteTool{toolName, params}`), `mcp_<server>_<tool>` (Gemini), or any tool when Gemini sends `mcp_context` | server / tool from `mcp_context.server_name` / `tool_name` when present, else from the name; paths from `path`, `file_path`, `filename`, `file`, `dir`, `directory`, `source`, `destination`, …; hosts from `url`, `uri`, `endpoint`, `host`, `domain`, `*_url`; a `command` / `cmd` argument is analysed as shell |
 | `other` | anything else (Claude `Task`, Codex `update_plan`, …) | the file and MCP path keys above, and URL-like keys |
 
 Sources: Claude Code hooks reference; Codex hooks page (tool coverage: `Bash`, `apply_patch` with `tool_input.command`, MCP names like `mcp__fs__read`; hosted tools such as `WebSearch` do not reach the hook); Gemini CLI hooks reference (MCP naming `mcp_<server_name>_<tool_name>`, optional `mcp_context`) and `packages/core/src/tools/definitions/base-declarations.ts` / `hooks/types.ts` for parameter names; CodeBuddy IDE hooks page for the IDE / CLI name pairs. All read on 2026-11-15. Unit tests in `internal/normalize` and `internal/simulate` feed each CLI's documented payload shape; none of the non-shell paths were run inside a live CLI.

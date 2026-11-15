@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-// Kind classifies a tool name from Codex, Claude Code, Gemini CLI, or CodeBuddy
+// Kind classifies a tool name from Codex, Claude Code, Gemini CLI, CodeBuddy, or WorkBuddy
 // into shell, file_read, file_write, file_edit, web_fetch, mcp, or other.
 // Names that differ between IDE and CLI builds are all accepted.
 // Verified against public docs on 2026-11-15; not against a live binary.
@@ -19,7 +19,7 @@ func Kind(tool string) string {
 		return "shell"
 	case "read", "read_file", "read_many_files", "glob", "grep", "grep_search", "ls",
 		"list_directory", "list_dir", "list_files", "search_content", "search_file",
-		"search_file_content", "view_image":
+		"search_file_content", "view_image", "viewimage":
 		return "file_read"
 	case "write", "write_file", "write_to_file", "create_file", "delete_file":
 		return "file_write"

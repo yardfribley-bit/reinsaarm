@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"github.com/yardfribley-bit/reinsaarm/internal/install"
 	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
 	"github.com/yardfribley-bit/reinsaarm/internal/policy"
+	"github.com/yardfribley-bit/reinsaarm/internal/workbuddy"
 )
 
 const version = "0.1.0"
@@ -77,9 +79,10 @@ func usage() {
 Usage:
   reinsaarm init [--home DIR]
   reinsaarm run [--home DIR] [--socket PATH] [--web ADDR] [--egress ADDR]
-  reinsaarm hook --client claude-code|codex|gemini|codebuddy
+  reinsaarm hook --client claude-code|codex|gemini|codebuddy|workbuddy
   reinsaarm install-hooks <client> [--scope project|user] [--dest DIR] [--trust]
-  reinsaarm doctor [--dest DIR]
+                        [--config-dir DIR]   (workbuddy --scope user)
+  reinsaarm doctor [--client codex|workbuddy] [--dest DIR]
   reinsaarm console [--addr 127.0.0.1:8787] [--dest DIR]
   reinsaarm decide --tool NAME [--command CMD] [--path PATH] [--cwd DIR]
   reinsaarm policy test [--kind K] [--path P] [--url U] [--server S --tool T]
@@ -191,7 +194,7 @@ func cmdRun(args []string) error {
 
 func cmdHook(args []string) error {
 	fs := newFlag("hook")
-	client := fs.String("client", "", "claude-code, codex, gemini, or codebuddy")
+	client := fs.String("client", "", "claude-code, codex, gemini, codebuddy, or workbuddy")
 	home := fs.String("home", "", "state directory")
 	socket := fs.String("socket", "", "unix socket")
 	if err := fs.Parse(args); err != nil {
@@ -256,9 +259,11 @@ func cmdInstall(args []string) error {
 	homeFlag := fs.String("home", "", "developer home for --scope user")
 	stateFlag := fs.String("state", "", "ReinsAARM state directory baked into the hook command")
 	trust := fs.Bool("trust", false, "codex only: write hooks.state trusted_hash into the user config.toml")
+	wbDir := fs.String("config-dir", "", "workbuddy --scope user only: WorkBuddy data folder (default $WORKBUDDY_CONFIG_DIR, else every existing ~/.workbuddy-ai and ~/.workbuddy)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
+	install.UserConfigDir = *wbDir
 	if *bin == "" {
 		exe, err := os.Executable()
 		if err != nil {
@@ -294,11 +299,23 @@ func cmdInstall(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := install.Apply(plans); err != nil {
+	backups, err := install.ApplyWithBackup(plans)
+	for _, b := range backups {
+		fmt.Printf("backup %s\n", b)
+	}
+	if err != nil {
 		return err
 	}
 	for _, p := range plans {
 		fmt.Printf("wrote %s\n%s\n", p.Path, p.Note)
+	}
+	if client == "workbuddy" {
+		fmt.Println("check with: reinsaarm doctor --client workbuddy" + func() string {
+			if *scope == "project" {
+				return " --dest " + project
+			}
+			return ""
+		}())
 	}
 	if client == "codex" {
 		if err := explainCodexTrust(plans[0].Path, project, *trust); err != nil {
@@ -401,6 +418,9 @@ func cmdDoctor(args []string) error {
 	fs := newFlag("doctor")
 	dest := fs.String("dest", "", "project directory")
 	codexHome := fs.String("codex-home", "", "Codex home (default $CODEX_HOME or ~/.codex)")
+	client := fs.String("client", "codex", "codex or workbuddy")
+	wbDir := fs.String("config-dir", "", "workbuddy: WorkBuddy data folder to check")
+	stateFlag := fs.String("home", "", "ReinsAARM state directory (workbuddy: sidecar check)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -411,6 +431,13 @@ func cmdDoctor(args []string) error {
 			return err
 		}
 		project = wd
+	}
+	switch *client {
+	case "codex", "":
+	case "workbuddy":
+		return doctorWorkBuddy(project, *wbDir, *stateFlag)
+	default:
+		return fmt.Errorf("doctor: --client must be codex or workbuddy")
 	}
 	home := *codexHome
 	if home == "" {
@@ -638,4 +665,107 @@ func loadConfig(flagHome string) (config.File, error) {
 		return config.File{}, err
 	}
 	return config.Load(config.Path(dir))
+}
+
+// doctorWorkBuddy checks the WorkBuddy hook files, the hook binary, and the
+// sidecar socket. It reads files only.
+func doctorWorkBuddy(project, configDir, stateFlag string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	projectAbs, _ := filepath.Abs(project)
+	var paths []string
+	paths = append(paths, workbuddy.ProjectSettings(projectAbs)...)
+	for _, d := range workbuddy.UserConfigDirs(home, configDir) {
+		paths = append(paths, filepath.Join(d, "settings.json"), filepath.Join(d, "settings.local.json"))
+	}
+	installed, failed := false, false
+	for _, p := range paths {
+		st := workbuddy.Inspect(p)
+		switch {
+		case st.Error != "":
+			failed = true
+			fmt.Fprintf(os.Stderr, "ERROR %s: %s\n", p, st.Error)
+			continue
+		case !st.Exists:
+			continue
+		}
+		if st.Disabled != "" {
+			failed = true
+			fmt.Fprintf(os.Stderr, "DISABLED %s sets %s=true: WorkBuddy runs no command hooks\n", p, st.Disabled)
+		}
+		for _, o := range st.Others {
+			fmt.Printf("note %s: another PreToolUse hook also runs in parallel: %s\n", p, o)
+		}
+		if !st.Installed {
+			continue
+		}
+		installed = true
+		fmt.Printf("installed %s (matcher %q)\n", p, st.Matcher)
+		if !st.CoversAll {
+			failed = true
+			fmt.Fprintf(os.Stderr, "PARTIAL %s: matcher %q does not match every tool (Bash, Read, Write, Edit, WebFetch, DeferExecuteTool, mcp__*). Use \"*\".\n", p, st.Matcher)
+		}
+		if argv := splitHookCommand(st.Command); len(argv) > 0 {
+			if _, err := os.Stat(argv[0]); err != nil {
+				failed = true
+				fmt.Fprintf(os.Stderr, "MISSING hook binary %s: WorkBuddy treats a non-zero, non-2 exit as allow, so every tool call would run unchecked\n", argv[0])
+			}
+		}
+	}
+	if !installed {
+		return fmt.Errorf("WorkBuddy hook is not installed (looked in %s). Run `reinsaarm install-hooks workbuddy --dest %s` or `--scope user`", strings.Join(paths, ", "), projectAbs)
+	}
+	cfg, err := loadConfig(stateFlag)
+	if err != nil {
+		failed = true
+		fmt.Fprintf(os.Stderr, "sidecar config: %v\n", err)
+	} else if conn, err := net.DialTimeout("unix", cfg.Socket, 500*time.Millisecond); err != nil {
+		failed = true
+		fmt.Fprintf(os.Stderr, "sidecar DOWN %s: %v. The hook exits 2 and WorkBuddy blocks every tool call until `reinsaarm run` is up\n", cfg.Socket, err)
+	} else {
+		_ = conn.Close()
+		fmt.Printf("sidecar ok %s\n", cfg.Socket)
+	}
+	fmt.Println("note: WorkBuddy snapshots hooks when a session starts; start a new task after installing")
+	if failed {
+		return fmt.Errorf("workbuddy hook check failed")
+	}
+	return nil
+}
+
+// splitHookCommand splits the command install-hooks writes (single-quoted
+// words, no other shell syntax).
+func splitHookCommand(cmd string) []string {
+	var out []string
+	var cur strings.Builder
+	inQ, have := false, false
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case inQ && c == '\'':
+			if strings.HasPrefix(cmd[i:], `'\''`) {
+				cur.WriteByte('\'')
+				i += 3
+				continue
+			}
+			inQ = false
+		case !inQ && c == '\'':
+			inQ, have = true, true
+		case !inQ && (c == ' ' || c == '\t'):
+			if have {
+				out = append(out, cur.String())
+				cur.Reset()
+				have = false
+			}
+		default:
+			cur.WriteByte(c)
+			have = true
+		}
+	}
+	if have {
+		out = append(out, cur.String())
+	}
+	return out
 }
