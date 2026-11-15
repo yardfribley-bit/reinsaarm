@@ -174,7 +174,7 @@ sometimes timestamped) before `SessionStart`; receipt `seq` is unchanged.
 
 ### API
 
-All need the console token.
+While the console is bound only to loopback, a request from a loopback address (`127.0.0.1`, the rest of `127.0.0.0/8`, or `::1`) does not need a token. Any other client still needs the console token. There is no login page.
 
 - `GET /api/sessions` — each session adds `turns`, `status` (running /
   turn_done / ended / idle / decisions_only), `model`, `source`,

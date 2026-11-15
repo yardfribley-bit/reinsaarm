@@ -71,8 +71,8 @@ func TestPolicyTestEndpointWritesNothing(t *testing.T) {
 		return res.StatusCode, m
 	}
 
-	if code, _ := post("", "application/json", `{"command":"ls"}`); code != http.StatusUnauthorized {
-		t.Fatalf("no token: %d", code)
+	if code, _ := post("", "application/json", `{"command":"ls"}`); code != http.StatusOK {
+		t.Fatalf("loopback without token: %d", code)
 	}
 	if code, _ := post("?token=tok", "text/plain", `{"command":"ls"}`); code != http.StatusUnsupportedMediaType {
 		t.Fatalf("form-style post must be refused: %d", code)

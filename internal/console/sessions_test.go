@@ -51,8 +51,13 @@ func TestSessionsAPI(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	if res, _ := http.Get(ts.URL + "/api/sessions"); res.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("sessions without token: %d", res.StatusCode)
+	res, err := http.Get(ts.URL + "/api/sessions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("loopback sessions without token: %d", res.StatusCode)
 	}
 	var list struct{ Sessions []SessionSummary }
 	getJSON(t, ts.URL+"/api/sessions?token=tok", &list)
