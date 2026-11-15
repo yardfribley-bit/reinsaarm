@@ -359,7 +359,13 @@ func cmdInstall(args []string) error {
 		}())
 	}
 	if client == "codex" {
-		if err := explainCodexTrust(plans[0].Path, project, *trust); err != nil {
+		// User-level hooks in ~/.codex/hooks.json need no project trust;
+		// writing one would silently trust whatever folder the installer ran in.
+		trustProject := project
+		if *scope == "user" {
+			trustProject = ""
+		}
+		if err := explainCodexTrust(plans[0].Path, trustProject, *trust); err != nil {
 			return err
 		}
 	}
@@ -390,7 +396,7 @@ func explainCodexTrust(hooksPath, project string, write bool) error {
 			fmt.Printf("wrote trusted_hash to %s\n", cfgPath)
 		}
 	}
-	if write {
+	if write && project != "" {
 		absProject, err := filepath.Abs(project)
 		if err != nil {
 			return err
@@ -543,9 +549,19 @@ func cmdDoctor(args []string) error {
 	if err != nil {
 		return err
 	}
+	projectHooks := false
+	for _, h := range found {
+		if h.Path != filepath.Join(home, "hooks.json") && filepath.Dir(filepath.Dir(h.Path)) == projectAbs {
+			projectHooks = true
+		}
+	}
 	userCfg := filepath.Join(home, "config.toml")
 	level, foundTrust := codextrust.ProjectTrust(userCfg, projectAbs)
-	if !foundTrust || level != "trusted" {
+	if !projectHooks {
+		// Only user-level hooks: Codex loads them in every folder, trusted
+		// or not, so project trust is not required.
+		fmt.Printf("user-level hooks only; project trust not required for %s\n", projectAbs)
+	} else if !foundTrust || level != "trusted" {
 		failed = true
 		shown := level
 		if shown == "" {

@@ -277,7 +277,7 @@ func WriteTrust(configPath, key, hash string) error {
 		return err
 	}
 	updated := upsert(string(existing), key, hash)
-	return os.WriteFile(configPath, []byte(updated), 0o644)
+	return writeKeepMode(configPath, []byte(updated))
 }
 
 func upsert(content, key, hash string) string {
@@ -423,5 +423,18 @@ func WriteProjectTrust(configPath, project string) error {
 		}
 		content += block
 	}
-	return os.WriteFile(configPath, []byte(content), 0o644)
+	return writeKeepMode(configPath, []byte(content))
+}
+
+// writeKeepMode writes config.toml without widening its permissions. The
+// Codex config can hold tokens and is often 0600; a new file is 0600 too.
+func writeKeepMode(path string, b []byte) error {
+	mode := os.FileMode(0o600)
+	if st, err := os.Stat(path); err == nil {
+		mode = st.Mode().Perm()
+	}
+	if err := os.WriteFile(path, b, mode); err != nil {
+		return err
+	}
+	return os.Chmod(path, mode)
 }

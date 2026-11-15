@@ -98,3 +98,61 @@ func runCLIErr(bin string, env []string, args ...string) error {
 	}
 	return nil
 }
+
+// TestCodexUserScopeKeepsForeignHooks installs into a ~/.codex/hooks.json that
+// already has another vendor's hooks (as on a real Mac with an OpenTelemetry
+// hook). Their groups stay first with unchanged trust keys, config.toml keeps
+// 0600, no project trust is written, and doctor passes in an untrusted folder.
+func TestCodexUserScopeKeepsForeignHooks(t *testing.T) {
+	bin := buildBin(t)
+	home := t.TempDir()
+	codex := filepath.Join(home, ".codex")
+	state := t.TempDir()
+	if err := os.MkdirAll(codex, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	foreign := `{"hooks":{"SessionStart":[{"matcher":"*","hooks":[{"type":"command","command":"/opt/otel/hook.sh session-start"}]}],` +
+		`"UserPromptSubmit":[{"matcher":"*","hooks":[{"type":"command","command":"/opt/otel/hook.sh user-prompt-submit"}]}]}}`
+	if err := os.WriteFile(filepath.Join(codex, "hooks.json"), []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	otelTrust := "[hooks.state.\"" + filepath.Join(codex, "hooks.json") + ":session_start:0:0\"]\ntrusted_hash = \"sha256:otel\"\n"
+	if err := os.WriteFile(filepath.Join(codex, "config.toml"), []byte(otelTrust), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	env := append(os.Environ(), "REINSAARM_HOME="+state, "CODEX_HOME="+codex, "HOME="+home)
+	runCLI(t, bin, env, "init")
+	other := t.TempDir()
+	cmd := exec.Command(bin, "install-hooks", "codex", "--scope", "user", "--home", home, "--state", state, "--trust")
+	cmd.Env, cmd.Dir = env, other
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install: %v\n%s", err, out)
+	}
+	body, _ := os.ReadFile(filepath.Join(codex, "hooks.json"))
+	if strings.Count(string(body), "/opt/otel/hook.sh") != 2 {
+		t.Fatalf("foreign hooks lost:\n%s", body)
+	}
+	cfg, _ := os.ReadFile(filepath.Join(codex, "config.toml"))
+	for _, want := range []string{"sha256:otel", "pre_tool_use:0:0", "session_start:1:0", "user_prompt_submit:1:0"} {
+		if !strings.Contains(string(cfg), want) {
+			t.Fatalf("config.toml missing %s:\n%s", want, cfg)
+		}
+	}
+	if strings.Contains(string(cfg), "trust_level") {
+		t.Fatalf("user scope must not trust a project:\n%s", cfg)
+	}
+	if st, _ := os.Stat(filepath.Join(codex, "config.toml")); st.Mode().Perm() != 0o600 {
+		t.Fatalf("config.toml mode %v", st.Mode().Perm())
+	}
+	runCLI(t, bin, env, "doctor", "--dest", other, "--codex-home", codex)
+	// A rerun must not duplicate our handlers.
+	cmd = exec.Command(bin, "install-hooks", "codex", "--scope", "user", "--home", home, "--state", state, "--trust")
+	cmd.Env, cmd.Dir = env, other
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("reinstall: %v\n%s", err, out)
+	}
+	again, _ := os.ReadFile(filepath.Join(codex, "hooks.json"))
+	if strings.Count(string(again), "hook --client codex") != 6 {
+		t.Fatalf("want 6 reinsaarm handlers:\n%s", again)
+	}
+}
