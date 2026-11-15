@@ -21,10 +21,10 @@ import (
 	"github.com/yardfribley-bit/reinsaarm/internal/approve"
 	"github.com/yardfribley-bit/reinsaarm/internal/decision"
 	"github.com/yardfribley-bit/reinsaarm/internal/egress"
-	"github.com/yardfribley-bit/reinsaarm/internal/extract"
 	"github.com/yardfribley-bit/reinsaarm/internal/hooks"
 	"github.com/yardfribley-bit/reinsaarm/internal/judge"
 	"github.com/yardfribley-bit/reinsaarm/internal/ledger"
+	"github.com/yardfribley-bit/reinsaarm/internal/normalize"
 	"github.com/yardfribley-bit/reinsaarm/internal/policy"
 	"github.com/yardfribley-bit/reinsaarm/internal/redact"
 	"github.com/yardfribley-bit/reinsaarm/internal/sensor"
@@ -199,7 +199,7 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		req.SessionID = "default"
 	}
 	ctxSnap := s.sessionContext(req.SessionID, req.Intent)
-	hash := approve.ArgsHash(action.Tool, action.Command, action.Paths, action.Hosts)
+	hash := approve.ArgsHash(action.Tool, normalize.HashCommand(action), action.Paths, action.Hosts)
 
 	out := eng.Evaluate(action, ctxSnap)
 	var verdict *judge.Verdict
@@ -231,7 +231,7 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 			_ = approve.Put(s.cfg.ApprovalPath, approve.Grant{
 				ID: approvalID, ArgsHash: hash,
 				Expires: time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
-				Tool:    action.Tool, Command: action.Command, Client: req.Client,
+				Tool:    action.Tool, Command: normalize.Summary(action), Client: req.Client,
 				Reason:   comp.Reason,
 				Enforced: string(hooks.ProjectEnforced(req.Client, decision.StepUp)),
 			})
@@ -249,8 +249,9 @@ func (s *Server) Decide(req hooks.Request) hooks.Response {
 		SessionID:        req.SessionID,
 		Tool:             action.Tool,
 		Kind:             action.Kind,
-		ActionDigest:     redact.Digest(action.Tool, action.Command, action.Paths, action.Hosts),
+		ActionDigest:     redact.Digest(action.Tool, normalize.HashCommand(action), action.Paths, action.Hosts),
 		CommandPreview:   redact.Preview(action.Command, 180),
+		Resources:        normalize.Resources(action),
 		Decision:         string(comp.Decision),
 		EnforcedDecision: string(enforced),
 		Tier:             comp.Tier,
@@ -373,17 +374,23 @@ func (s *Server) noteSession(id, intent string, a policy.Action, enforced decisi
 }
 
 func actionFrom(req hooks.Request) policy.Action {
-	cmd := extract.Command(req.Input)
-	return policy.Action{
+	return normalize.Action(CallFrom(req))
+}
+
+// CallFrom converts a sidecar request to a normalization call.
+func CallFrom(req hooks.Request) normalize.Call {
+	c := normalize.Call{
+		Client:            req.Client,
 		Tool:              req.Tool,
-		Kind:              extract.Kind(req.Tool),
-		Command:           cmd,
-		Paths:             extract.Paths(req.CWD, cmd, req.Input),
-		Hosts:             extract.Hosts(cmd, req.Input),
+		Input:             req.Input,
 		CWD:               req.CWD,
 		MCPDescription:    req.MCPDescription,
 		MCPDefinitionHash: req.MCPDefinitionHash,
 	}
+	if req.MCPContext != nil {
+		c.MCPContext = &normalize.MCPContext{ServerName: req.MCPContext.ServerName, ToolName: req.MCPContext.ToolName}
+	}
+	return c
 }
 
 func (s *Server) serveWeb(ctx context.Context) error {

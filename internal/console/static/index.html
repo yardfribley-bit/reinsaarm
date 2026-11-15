@@ -22,7 +22,14 @@
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font: 14px/1.45 "Segoe UI", "PingFang SC", "Noto Sans SC", sans-serif; }
-  button, input { font: inherit; color: inherit; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .field { background: #0b0c0f; border: 1px solid var(--line2); border-radius: 8px; padding: 7px 10px; width: 100%; }
+  textarea.field { min-height: 64px; resize: vertical; }
+  .simgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
+  .simout { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .simout dl { display: grid; grid-template-columns: 90px 1fr; gap: 4px 10px; margin: 8px 0 0; }
+  .simout dt { color: var(--muted); }
+  .simout dd { margin: 0; }
   .app { display: grid; grid-template-columns: 220px 1fr; min-height: 100%; }
   aside { background: var(--side); border-right: 1px solid var(--line); display: flex; flex-direction: column; padding: 18px 12px; }
   .brand { padding: 6px 10px 18px; }
@@ -114,6 +121,8 @@ let boot = {};
 let receipts = [];
 let approvals = {pending: [], resolved: []};
 let drawer = null;
+let rendered = "";
+let sim = {kind: "shell", agent: "", main: "", server: "", tool: "", args: "", result: null, error: ""};
 
 function agentName(c) {
   const m = {codex:"Codex", "claude-code":"Claude Code", gemini:"Gemini", codebuddy:"CodeBuddy", reinsaarm:"系统", sensor:"系统", egress:"系统", demo:"系统"};
@@ -126,6 +135,18 @@ function chip(d) {
 function chips(rec) {
   if (rec.decision === rec.enforced_decision) return chip(rec.decision);
   return chip(rec.decision) + `<span class="arrow">→</span>` + chip(rec.enforced_decision);
+}
+function what(r) {
+  if (r.command_preview) return r.command_preview;
+  const res = r.resources || {};
+  const bits = [r.tool];
+  if (res.mcp_server || res.mcp_tool) bits.push(`${res.mcp_server || "?"}/${res.mcp_tool || "?"}`);
+  if ((res.paths||[]).length) bits.push(res.paths.slice(0, 3).join(" "));
+  if ((res.hosts||[]).length) bits.push(res.hosts.slice(0, 3).join(" "));
+  return bits.filter(Boolean).join(" · ");
+}
+function kindTag(r) {
+  return r.kind && r.kind !== "shell" ? `<span class="muted mono">[${esc(r.kind)}]</span> ` : "";
 }
 function when(ts) {
   if (!ts) return "";
@@ -181,21 +202,24 @@ function banner() {
 
 function render() {
   document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.page === page));
+  // The policy page holds a form; the 2 s refresh must not wipe what is typed.
+  if (page === "policy" && rendered === "policy") return;
+  rendered = page;
   view.className = "content" + (page === "stream" ? "" : " single");
   if (page === "stream") view.innerHTML = streamHTML();
   else if (page === "approvals") view.innerHTML = approvalsHTML();
   else if (page === "audit") view.innerHTML = auditHTML();
-  else if (page === "policy") view.innerHTML = `<h1>策略</h1><div id="policy">加载中…</div>`;
+  else if (page === "policy") view.innerHTML = `<h1>策略</h1>${simHTML()}<div id="policy">加载中…</div>`;
   else view.innerHTML = `<h1>健康检查</h1><div id="health">加载中…</div>`;
   bind();
-  if (page === "policy") loadPolicy();
+  if (page === "policy") { bindSim(); loadPolicy(); }
   if (page === "health") loadHealth();
 }
 function streamHTML() {
   const rows = receipts.map(r => `<tr>
     <td class="mono muted">${esc(when(r.ts))}</td>
     <td>${esc(agentName(r.client))}</td>
-    <td class="mono">${esc(r.command_preview || r.tool)}</td>
+    <td class="mono">${kindTag(r)}${esc(what(r))}</td>
     <td>${esc(r.reason || "")}</td>
     <td>${chips(r)}</td></tr>`).join("") || `<tr><td colspan="5" class="muted">还没有决定。</td></tr>`;
   const cards = (approvals.pending || []).map(card).join("") || `<p class="muted">没有待审批。</p>`;
@@ -240,7 +264,7 @@ function drawerHTML(g) {
 }
 function auditHTML() {
   const items = receipts.map(r => `<div class="tl">
-    <div><span class="mono">#${r.seq}</span> ${esc(r.command_preview || r.tool)} ${chips(r)}</div>
+    <div><span class="mono">#${r.seq}</span> ${kindTag(r)}${esc(what(r))} ${chips(r)}</div>
     <div class="muted">${esc(r.reason || r.event_type || "")}</div>
     <div class="mono muted">${esc((r.receipt_hash || "").slice(0, 22))}</div>
   </div>`).join("") || `<p class="muted">审计链是空的。</p>`;
@@ -258,6 +282,102 @@ async function loadPolicy() {
       ${(p.adapters||[]).map(a => `<tr><td>${esc(a.client)}</td><td>${esc(a.allow)}</td><td>${esc(a.step_up)}</td><td class="muted">${esc(a.note)}</td></tr>`).join("")}
     </table></div>
     <h2>remit.yaml</h2><pre class="yaml mono">${esc(p.yaml || "")}</pre>`;
+}
+const SIM_KINDS = [
+  ["shell", "shell 命令"], ["file_read", "读文件 file_read"], ["file_write", "写文件 file_write"],
+  ["file_edit", "改文件 file_edit"], ["web_fetch", "网络请求 web_fetch"], ["mcp", "MCP 调用"],
+  ["payload", "原始钩子 JSON"]];
+const SIM_AGENTS = [["", "不指定 Agent"], ["codex", "Codex"], ["claude-code", "Claude Code"], ["gemini", "Gemini CLI"], ["codebuddy", "CodeBuddy"]];
+function simPlaceholder(k) {
+  return {shell: "git push --force origin main", file_read: "~/.ssh/id_rsa", file_write: "src/main.go",
+    file_edit: ".github/workflows/ci.yml", web_fetch: "https://example.com/docs", mcp: "", payload: ""}[k] || "";
+}
+function simHTML() {
+  const k = sim.kind;
+  const opts = (list, cur) => list.map(([v, l]) => `<option value="${v}" ${v===cur?"selected":""}>${esc(l)}</option>`).join("");
+  const showMain = k !== "mcp" && k !== "payload";
+  const showArgs = k === "mcp" || k === "payload";
+  const argsPh = k === "mcp" ? '参数 JSON，例如 {"path": "~/.aws/credentials"}'
+    : 'PreToolUse 钩子 JSON，例如 {"tool_name": "Read", "tool_input": {"file_path": "~/.ssh/id_rsa"}}';
+  return `<div class="card" id="sim"><h2>模拟执行</h2>
+    <p class="muted">在当前策略下测试一次调用：不执行，不写审计回执，不创建也不消耗审批。</p>
+    <div class="simgrid">
+      <select class="field" id="sim-kind">${opts(SIM_KINDS, k)}</select>
+      <select class="field" id="sim-agent">${opts(SIM_AGENTS, sim.agent)}</select>
+    </div>
+    ${showMain ? `<input class="field mono" id="sim-main" value="${esc(sim.main)}" placeholder="${esc(simPlaceholder(k))}">` : ""}
+    ${k === "mcp" ? `<div class="simgrid"><input class="field mono" id="sim-server" value="${esc(sim.server)}" placeholder="server，例如 filesystem"><input class="field mono" id="sim-tool" value="${esc(sim.tool)}" placeholder="tool，例如 read_file"></div>` : ""}
+    ${showArgs ? `<textarea class="field mono" id="sim-args" placeholder="${esc(argsPh)}">${esc(sim.args)}</textarea>` : ""}
+    <div class="row-actions"><button class="btn gold" id="sim-run">测试</button></div>
+    <div id="sim-out">${simResultHTML()}</div></div>`;
+}
+function simResultHTML() {
+  if (sim.error) return `<div class="simout badtext">${esc(sim.error)}</div>`;
+  const r = sim.result;
+  if (!r) return "";
+  const a = r.action || {};
+  let head = chip(r.decision);
+  if (r.enforced && r.enforced !== r.decision) head += `<span class="arrow">→</span>` + chip(r.enforced);
+  const rows = [
+    ["命中规则", `<span class="mono">${esc((r.rule_ids||[]).join(", "))}</span>`],
+    ["原因", esc(r.reason || "")],
+  ];
+  if (r.agent) rows.push([agentName(r.agent), "执行为 " + chip(r.agent_enforced)]);
+  if (r.rewrite) rows.push(["改写为", `<span class="mono">${esc(r.rewrite)}</span>`]);
+  rows.push(["类型", `<span class="mono">${esc(a.kind)} · ${esc(a.tool)}</span>`]);
+  if (a.command) rows.push(["命令", `<span class="mono">${esc(a.command)}</span>`]);
+  if ((a.paths||[]).length) rows.push(["路径", `<span class="mono">${esc(a.paths.join(", "))}</span>`]);
+  if ((a.hosts||[]).length) rows.push(["主机", `<span class="mono">${esc(a.hosts.join(", "))}</span>`]);
+  if ((a.git_ops||[]).length) rows.push(["git", `<span class="mono">${esc(a.git_ops.join(", "))}</span>`]);
+  if (a.mcp_server || a.mcp_tool) rows.push(["MCP", `<span class="mono">${esc(a.mcp_server)} / ${esc(a.mcp_tool)}</span>`]);
+  rows.push(["策略版本", `<span class="mono">${esc(r.policy_version)}</span> · 模式 ${esc(r.mode)}`]);
+  return `<div class="simout">${head}<dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
+    ${(r.notes||[]).map(n => `<p class="muted" style="margin:6px 0 0">${esc(n)}</p>`).join("")}</div>`;
+}
+function readSim() {
+  const v = id => { const el = $("#" + id); return el ? el.value : undefined; };
+  ["main", "server", "tool", "args"].forEach(f => { const x = v("sim-" + f); if (x !== undefined) sim[f] = x; });
+  sim.agent = v("sim-agent") ?? sim.agent;
+}
+function redrawSim() {
+  const el = $("#sim");
+  if (!el) return;
+  el.outerHTML = simHTML();
+  bindSim();
+}
+function bindSim() {
+  const kind = $("#sim-kind");
+  if (!kind) return;
+  kind.onchange = () => { readSim(); sim.kind = kind.value; sim.result = null; sim.error = ""; redrawSim(); };
+  const main = $("#sim-main");
+  if (main) main.onkeydown = e => { if (e.key === "Enter") runSim(); };
+  $("#sim-run").onclick = runSim;
+}
+async function runSim() {
+  readSim();
+  const body = {agent: sim.agent};
+  try {
+    if (sim.kind === "payload") body.payload = JSON.parse(sim.args || "{}");
+    else if (sim.kind === "shell") body.command = sim.main;
+    else if (sim.kind === "web_fetch") { body.kind = "web_fetch"; body.url = sim.main; }
+    else if (sim.kind === "mcp") {
+      body.kind = "mcp"; body.server = sim.server; body.tool = sim.tool;
+      if ((sim.args || "").trim()) body.args = JSON.parse(sim.args);
+    } else { body.kind = sim.kind; body.paths = [sim.main]; }
+  } catch (e) {
+    sim.result = null; sim.error = "JSON 格式错误：" + e.message; redrawSim(); return;
+  }
+  try {
+    const r = await fetch("/api/policy/test", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const txt = await r.text();
+    let j = {};
+    try { j = JSON.parse(txt); } catch (_) { j = {error: txt}; }
+    if (!r.ok) { sim.result = null; sim.error = j.error || txt; }
+    else { sim.result = j; sim.error = ""; }
+  } catch (e) {
+    sim.result = null; sim.error = String(e.message || e);
+  }
+  redrawSim();
 }
 async function loadHealth() {
   const h = await api("/api/health");

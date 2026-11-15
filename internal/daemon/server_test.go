@@ -214,3 +214,51 @@ func TestMalformed(t *testing.T) {
 		t.Fatalf("%+v", resp)
 	}
 }
+
+func TestReceiptsRecordNormalizedKindAndResources(t *testing.T) {
+	srv := startServer(t, nil)
+	ask := func(client, tool string, input map[string]any, mcp *hooks.MCPContext) hooks.Response {
+		t.Helper()
+		resp, err := hooks.Exchange(srv.cfg.Socket, hooks.Request{
+			Schema: "reinsaarm.decide.v1", Client: client, SessionID: "n",
+			CWD: "/home/dev/project", Tool: tool, Input: input, MCPContext: mcp,
+		}, 2*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+	read := ask("claude-code", "Read", map[string]any{"file_path": "~/.ssh/id_rsa"}, nil)
+	if read.Enforced != string(decision.Deny) {
+		t.Fatalf("claude Read of a key: %+v", read)
+	}
+	gem := ask("gemini", "read_file", map[string]any{"file_path": "/home/dev/.aws/credentials"}, nil)
+	if gem.Enforced != string(decision.Deny) {
+		t.Fatalf("gemini read_file: %+v", gem)
+	}
+	mcp := ask("gemini", "mcp_fs_list", map[string]any{"path": "src"}, &hooks.MCPContext{ServerName: "fs", ToolName: "list"})
+	if mcp.Enforced != string(decision.Allow) {
+		t.Fatalf("mcp: %+v", mcp)
+	}
+	patch := ask("codex", "apply_patch", map[string]any{"command": "*** Begin Patch\n*** Update File: a.go\n+rm -rf /\n*** End Patch\n"}, nil)
+	if patch.Enforced != string(decision.Allow) {
+		t.Fatalf("apply_patch: %+v", patch)
+	}
+	recs, err := ledger.Tail(srv.cfg.AuditPath, 10)
+	if err != nil || len(recs) != 4 {
+		t.Fatalf("%d %v", len(recs), err)
+	}
+	if recs[0].Kind != "file_read" || recs[0].Resources == nil || recs[0].Resources.Paths[0] != "~/.ssh/id_rsa" {
+		t.Fatalf("read receipt %+v", recs[0])
+	}
+	if recs[2].Kind != "mcp" || recs[2].Resources.MCPServer != "fs" || recs[2].Resources.MCPTool != "list" {
+		t.Fatalf("mcp receipt %+v", recs[2].Resources)
+	}
+	if recs[3].Kind != "file_edit" || recs[3].Resources.Paths[0] != "a.go" || recs[3].CommandPreview != "" {
+		t.Fatalf("patch receipt %+v", recs[3])
+	}
+	n, problem, err := ledger.Verify(srv.cfg.AuditPath, srv.cfg.PublicKey)
+	if err != nil || problem != nil || n != 4 {
+		t.Fatalf("verify n=%d problem=%v err=%v", n, problem, err)
+	}
+}

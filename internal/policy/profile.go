@@ -67,6 +67,12 @@ type Spec struct {
 		PromptVersion string  `yaml:"promptVersion"`
 	} `yaml:"judge"`
 	MCPPins map[string]string `yaml:"mcpPins"`
+	// MCP holds rules matched by MCP server and tool name. An MCP call that
+	// matches no rule is allowed unless another rule (credential path,
+	// egress, poisoning, definition pin) matches its arguments.
+	MCP struct {
+		Rules []MCPRule `yaml:"rules"`
+	} `yaml:"mcp"`
 }
 
 // Load parses a profile from YAML bytes.
@@ -140,6 +146,11 @@ func (p *Profile) normalize() error {
 	p.Spec.Remit = strings.TrimSpace(p.Spec.Remit)
 	if p.Spec.Remit == "" {
 		return fmt.Errorf("profile: remit is required")
+	}
+	for i := range p.Spec.MCP.Rules {
+		if err := p.Spec.MCP.Rules[i].normalize(i); err != nil {
+			return err
+		}
 	}
 	if len(p.Spec.ProtectedBranches) == 0 {
 		p.Spec.ProtectedBranches = []string{"main", "master"}

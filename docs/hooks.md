@@ -66,6 +66,24 @@ Docs: <https://geminicli.com/docs/hooks/reference/> (page last-updated line: Apr
 
 See [workbuddy.md](workbuddy.md). Short version: the IDE settings hook is real, it looks like Claude Code, and the rewrite field is `modifiedInput`, not `updatedInput`.
 
+## Normalized action model
+
+The hook forwards `tool_name`, `tool_input`, and (Gemini only) `mcp_context`. The sidecar's `internal/normalize` maps them onto one action: a kind plus resources. Unknown tools become `other`; the hook's failure behaviour does not change.
+
+| Kind | Tool names accepted | Resources read from |
+|---|---|---|
+| `shell` | `Bash` (Claude, Codex, CodeBuddy CLI), `run_shell_command` (Gemini), `execute_command` (CodeBuddy IDE), `exec_command`, `shell`, `powershell` | `command`: paths and hosts from tokens, git subcommands |
+| `file_read` | `Read`, `Glob`, `Grep`, `LS`, `read_file`, `read_many_files`, `glob`, `grep_search`, `search_file_content`, `list_directory`, `list_dir`, `list_files`, `search_content`, `search_file`, `view_image` | `file_path`, `path`, `paths`, `dir_path`, `notebook_path`, `target_file`, `absolute_path`, `include`, `include_pattern`, `glob`; `pattern` only for glob tools (a `Grep` pattern is a regex, not a path) |
+| `file_write` | `Write`, `write_file`, `write_to_file`, `create_file`, `delete_file` | same keys; file `content` is not scanned for hosts or paths |
+| `file_edit` | `Edit`, `MultiEdit`, `NotebookEdit`, `replace`, `replace_in_file`, `apply_patch` | same keys; for `apply_patch` only the patch header lines (`*** Update File:`, `*** Add File:`, `*** Delete File:`, `*** Move to:`, `+++ b/`, `--- a/`) |
+| `web_fetch` | `WebFetch`, `web_fetch`, `WebSearch`, `web_search`, `google_web_search` | hosts from `url`-like keys and Gemini's `prompt`; search queries have no target host |
+| `mcp` | `mcp__<server>__<tool>` (Claude Code, Codex, CodeBuddy), `mcp_<server>_<tool>` (Gemini), or any tool when Gemini sends `mcp_context` | server / tool from `mcp_context.server_name` / `tool_name` when present, else from the name; paths from `path`, `file_path`, `filename`, `file`, `dir`, `directory`, `source`, `destination`, …; hosts from `url`, `uri`, `endpoint`, `host`, `domain`, `*_url`; a `command` / `cmd` argument is analysed as shell |
+| `other` | anything else (Claude `Task`, Codex `update_plan`, …) | the file and MCP path keys above, and URL-like keys |
+
+Sources: Claude Code hooks reference; Codex hooks page (tool coverage: `Bash`, `apply_patch` with `tool_input.command`, MCP names like `mcp__fs__read`; hosted tools such as `WebSearch` do not reach the hook); Gemini CLI hooks reference (MCP naming `mcp_<server_name>_<tool_name>`, optional `mcp_context`) and `packages/core/src/tools/definitions/base-declarations.ts` / `hooks/types.ts` for parameter names; CodeBuddy IDE hooks page for the IDE / CLI name pairs. All read on 2026-11-15. Unit tests in `internal/normalize` and `internal/simulate` feed each CLI's documented payload shape; none of the non-shell paths were run inside a live CLI.
+
+Receipts record `kind` and a `resources` object (`paths`, `hosts`, `git_ops`, `mcp_server`, `mcp_tool`). URLs are reduced to hosts so query-string tokens are not stored, and `KEY=value` secrets in paths are redacted. The field is omitted when empty, so receipts written before it existed still verify.
+
 ## What the sidecar re-derives
 
 The hook forwards `tool_name` and `tool_input`. The sidecar, not the hook, classifies the kind and pulls commands, paths, and hosts out of the payload. A hook that omitted a host from a side channel would still be caught if the host is in the command string. A hook that never starts is not caught by this path; that is why the egress proxy and the `/proc` sensor exist.

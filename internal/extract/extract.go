@@ -8,19 +8,24 @@ import (
 	"strings"
 )
 
-// Kind classifies a tool name from Codex, Claude Code, Gemini CLI, or CodeBuddy.
+// Kind classifies a tool name from Codex, Claude Code, Gemini CLI, or CodeBuddy
+// into shell, file_read, file_write, file_edit, web_fetch, mcp, or other.
 // Names that differ between IDE and CLI builds are all accepted.
 // Verified against public docs on 2026-11-15; not against a live binary.
+// See docs/hooks.md "Normalized action model" for the table.
 func Kind(tool string) string {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
 	case "bash", "shell", "run_shell_command", "exec_command", "execute_command", "powershell":
 		return "shell"
-	case "read", "read_file", "read_many_files", "glob", "grep", "grep_search",
-		"list_directory", "list_dir", "search_content", "search_file_content":
+	case "read", "read_file", "read_many_files", "glob", "grep", "grep_search", "ls",
+		"list_directory", "list_dir", "list_files", "search_content", "search_file",
+		"search_file_content", "view_image":
 		return "file_read"
-	case "write", "edit", "apply_patch", "write_file", "write_to_file", "replace",
-		"replace_in_file", "notebookedit", "editnotebook":
+	case "write", "write_file", "write_to_file", "create_file", "delete_file":
 		return "file_write"
+	case "edit", "multiedit", "apply_patch", "replace", "replace_in_file",
+		"notebookedit", "editnotebook":
+		return "file_edit"
 	case "webfetch", "web_fetch", "websearch", "web_search", "google_web_search":
 		return "web_fetch"
 	default:
@@ -31,6 +36,9 @@ func Kind(tool string) string {
 		return "other"
 	}
 }
+
+// IsWrite reports whether a kind changes files.
+func IsWrite(kind string) bool { return kind == "file_write" || kind == "file_edit" }
 
 var (
 	urlRe = regexp.MustCompile(`(?i)\b[a-z][a-z0-9+.-]*://[^\s'"<>|]+`)

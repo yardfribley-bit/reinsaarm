@@ -34,3 +34,8 @@ func Digest(tool, command string, paths, hosts []string) string {
 	_, _ = h.Write([]byte(strings.Join(hosts, "\n")))
 	return "sha256:" + hex.EncodeToString(h.Sum(nil))
 }
+
+// Value redacts KEY=value secrets in a short string such as a path.
+func Value(s string) string {
+	return secretAssign.ReplaceAllString(s, "$1=[REDACTED]")
+}
