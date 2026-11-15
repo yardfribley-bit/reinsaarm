@@ -71,7 +71,12 @@ examples/enterprise      managed-hook snippets
 docs/PRD-dev-agent.md    product requirements (Chinese)
 docs/hooks.md            hook field notes and what was not executed
 docs/workbuddy.md        WorkBuddy / CodeBuddy finding
+docs/acceptance/         Codex 0.151 live acceptance report (2026-11-15)
 ```
+
+## Testing
+
+A live acceptance run against Codex CLI 0.151.0 on 2026-11-15, including console UI follow-ups, is in [docs/acceptance/2026-11-15-codex-0.151.md](docs/acceptance/2026-11-15-codex-0.151.md).
 
 ## Hooks
 
@@ -107,4 +112,4 @@ ReinsAARM 是给编程 Agent 用的本地运行时安全层，覆盖 Codex CLI�
 
 默认策略会拒绝读取 `~/.ssh`、`~/.aws` 和 `.env`（`.env.example` 除外），拒绝受保护分支的 force-push，把发往 `main` 的普通 push、工作区外的 `rm -rf`、以及灌进 shell 的远程脚本转成审批；严格模式下拒绝白名单以外的主机。CI 配置 `examples/profiles/ci-runner.yaml` 会把审批直接执行成拒绝。
 
-开发机上进程内规则 p99 约 10 微秒。x86 Mac 上用 Codex CLI 0.151.0 实测：钩子端到端 p50 约 18ms、p99 约 26ms；sidecar 的 `latency_us` p50 约 3.2ms、最大约 12.9ms。CI 会在进程内 p99 不低于 1 毫秒时失败。Codex 的项目级钩子必须先在 `/hooks` 里信任，或用 `install-hooks codex --trust` 写入 `trusted_hash` 和项目 `trust_level`，否则不会执行。本地控制台：`reinsaarm console`，只监听 127.0.0.1，地址里带一次性 token。
+开发机上进程内规则 p99 约 10 微秒。x86 Mac 上用 Codex CLI 0.151.0 实测：钩子端到端 p50 约 18ms、p99 约 26ms；sidecar 的 `latency_us` p50 约 3.2ms、最大约 12.9ms。CI 会在进程内 p99 不低于 1 毫秒时失败。Codex 的项目级钩子必须先在 `/hooks` 里信任，或用 `install-hooks codex --trust` 写入 `trusted_hash` 和项目 `trust_level`，否则不会执行。本地控制台：`reinsaarm console`，只监听 127.0.0.1，地址里带一次性 token。2026-11-15 对 Codex CLI 0.151.0 的本机实测验收见 [docs/acceptance/2026-11-15-codex-0.151.md](docs/acceptance/2026-11-15-codex-0.151.md)。
