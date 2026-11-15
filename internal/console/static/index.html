@@ -77,6 +77,12 @@
   .muted { color: var(--muted); }
   pre.yaml { white-space: pre-wrap; background: #0b0c0f; border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 360px; overflow: auto; }
   .oktext { color: var(--allow); }
+  pre.diff { white-space: pre-wrap; background: #0b0c0f; border: 1px solid var(--line); border-radius: 8px; padding: 12px; max-height: 320px; overflow: auto; margin: 8px 0; }
+  pre.diff .add { color: var(--allow); background: var(--allow-bg); display: block; }
+  pre.diff .del { color: var(--deny); background: var(--deny-bg); display: block; }
+  pre.diff .ctx { display: block; }
+  .confirm { border: 1px solid #4A3B14; border-radius: 10px; padding: 12px; margin-top: 10px; background: #15130d; }
+  table.rules td { vertical-align: middle; }
   .badtext { color: var(--deny); }
   .timeline { border-left: 2px solid var(--line2); margin-left: 10px; padding-left: 16px; }
   .tl { margin: 0 0 16px; position: relative; }
@@ -1105,7 +1111,7 @@ function drawerHTML(g) {
       <button class="btn ghost" id="close-drawer">取消</button>
     </div></div>`;
 }
-const EVENT_NAMES = {"session.start": "会话开始", "session.end": "会话结束", "prompt.submit": "用户提示", "tool.result": "工具结果", "agent.stop": "Agent 完成本轮", "action.decision": "执行前决定"};
+const EVENT_NAMES = {"session.start": "会话开始", "session.end": "会话结束", "prompt.submit": "用户提示", "tool.result": "工具结果", "agent.stop": "Agent 完成本轮", "action.decision": "执行前决定", "policy.changed": "策略变更"};
 function auditHTML() {
   const m = /^(\d+)-(\d+)$/.exec(openId);
   const items = receipts.map(r => `<div class="tl">
@@ -1136,9 +1142,10 @@ function newRuleHTML() {
       <select class="field" id="nr-decision">${["ALLOW", "STEP_UP", "DENY"].map(opt).join("")}</select>
     </div>
     <input class="field" id="nr-reason" value="${esc(r.reason)}" placeholder="原因（写进回执）">
-    <p class="muted" style="margin:10px 0 6px">把下面这段并入 profile.yaml 的 <span class="mono">spec.mcp.rules</span>（已有 rules 时只追加 <span class="mono">- id:</span> 那一项）。sidecar 发现文件变化会自动重新加载；控制台不直接改策略文件。</p>
+    <p class="muted" style="margin:10px 0 6px">「保存并生效」会先给你看对 profile.yaml 的改动，确认后写入 <span class="mono">spec.mcp.rules</span>（自动备份原文件，并在审计链记一条 <span class="mono">policy.changed</span>）；sidecar 在下一次工具调用前自动重新加载，不用重启。也可以复制 YAML 自己合并。</p>
     <pre class="yaml mono" id="nr-yaml">${esc(ruleYAML(r))}</pre>
-    <div class="row-actions"><button class="btn gold" id="nr-copy">复制 YAML</button><button class="btn" id="nr-sim">用模拟执行测试当前策略</button><span class="muted" id="nr-note"></span></div></div>`;
+    <div class="row-actions"><button class="btn gold" id="nr-save">保存并生效</button><button class="btn" id="nr-copy">复制 YAML</button><button class="btn" id="nr-sim">用模拟执行测试当前策略</button><span class="muted" id="nr-note"></span></div>
+    <div id="nr-confirm"></div></div>`;
 }
 function bindNewRule() {
   const box = $("#newrule");
@@ -1151,17 +1158,77 @@ function bindNewRule() {
   $("#nr-decision").onchange = upd;
   $("#nr-copy").onclick = async () => { try { await navigator.clipboard.writeText(ruleYAML(newRule)); $("#nr-note").textContent = "已复制"; } catch (_) { $("#nr-note").textContent = "复制失败，请手动选中"; } };
   $("#nr-sim").onclick = () => { sim.kind = "mcp"; if (!sim.server) sim.server = newRule.server; if (!sim.tool) sim.tool = newRule.tool.replace(/\*$/, ""); redrawSim(); runSim(); };
+  $("#nr-save").onclick = async () => {
+    upd();
+    const body = {op: "add", server: newRule.server, tool: newRule.tool, decision: newRule.decision, reason: newRule.reason};
+    await previewRuleChange(body, $("#nr-confirm"), $("#nr-note"), (res) => {
+      $("#nr-note").innerHTML = `<span class="oktext">已保存并生效</span>：规则 <span class="mono">${esc(res.rule.id)}</span>，审计回执 #${esc(res.receipt_seq)}，备份 <span class="mono">${esc(res.backup)}</span>`;
+      sim.kind = "mcp"; sim.server = newRule.server; sim.tool = newRule.tool.replace(/\*/g, "x").replace(/\?/g, "x"); sim.args = "";
+      redrawSim(); runSim();
+    });
+  };
+}
+async function postRule(body) {
+  const r = await fetch("/api/policy/mcp-rules", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+  const txt = await r.text();
+  let j = {};
+  try { j = JSON.parse(txt); } catch (_) { j = {error: txt}; }
+  if (!r.ok) throw new Error(j.error || txt);
+  return j;
+}
+function diffHTML(d) {
+  return `<pre class="diff mono">${(d || "").split("\n").filter(l => l !== "").map(l => `<span class="${l[0] === "+" ? "add" : l[0] === "-" ? "del" : "ctx"}">${esc(l)}</span>`).join("")}</pre>`;
+}
+// previewRuleChange dry-runs an add or remove, shows the diff, and on
+// confirmation writes exactly that diff (the server checks base_version).
+async function previewRuleChange(body, box, note, onDone) {
+  note.textContent = "";
+  let prev;
+  try { prev = await postRule({...body, dry_run: true}); }
+  catch (e) { box.innerHTML = ""; note.innerHTML = `<span class="badtext">${esc(e.message)}</span>`; return; }
+  const verb = body.op === "remove" ? "删除" : "写入";
+  box.innerHTML = `<div class="confirm"><strong>确认${verb}以下改动？</strong>
+    <div class="muted mono" style="margin-top:4px">${esc(prev.path)} · 版本 ${esc(prev.base_version)} → ${esc(prev.version)}</div>
+    ${diffHTML(prev.diff)}
+    <div class="row-actions"><button class="btn ${body.op === "remove" ? "danger" : "gold"}" data-rc="ok">确认${verb}并生效</button><button class="btn ghost" data-rc="no">取消</button></div></div>`;
+  box.querySelector('[data-rc="no"]').onclick = () => { box.innerHTML = ""; };
+  box.querySelector('[data-rc="ok"]').onclick = async () => {
+    try {
+      const res = await postRule({...body, id: prev.rule.id, base_version: prev.base_version});
+      box.innerHTML = "";
+      await loadPolicy();
+      onDone(res);
+    } catch (e) { note.innerHTML = `<span class="badtext">${esc(e.message)}</span>`; box.innerHTML = ""; }
+  };
+}
+function mcpRulesHTML(p) {
+  const rules = p.mcp_rules || [];
+  const rows = rules.map(r => `<tr><td class="mono">${esc(r.id)}</td><td class="mono">${esc(r.server || "*")}</td><td class="mono">${esc(r.tool || "*")}</td><td>${chip(r.decision)}</td><td class="muted">${esc(r.reason || "")}</td>
+    <td>${r.removable ? `<button class="btn danger" data-delrule="${esc(r.id)}">删除</button>` : `<span class="muted">手动维护</span>`}</td></tr>`).join("");
+  return `<div class="card" id="mcp-rules"><h2>MCP 规则 <span class="muted">${rules.length} 条</span></h2>
+    ${rules.length ? `<table class="rules"><tr><th>ID</th><th>server</th><th>tool</th><th>决定</th><th>原因</th><th></th></tr>${rows}</table>` : `<p class="muted">还没有 MCP 规则：所有 MCP 调用都是「无规则放行」（参数命中凭据路径、外联黑名单或投毒描述时除外）。</p>`}
+    <div class="row-actions"><button class="btn" id="mr-new">新建 MCP 规则</button><span class="muted" id="mr-note"></span></div><div id="mr-confirm"></div></div>`;
+}
+function bindMCPRules() {
+  const nb = $("#mr-new");
+  if (nb) nb.onclick = () => { newRule = null; rendered = ""; location.hash = "#/policy/new-mcp-rule"; };
+  document.querySelectorAll("[data-delrule]").forEach(b => b.onclick = () => {
+    previewRuleChange({op: "remove", id: b.dataset.delrule}, $("#mr-confirm"), $("#mr-note"), (res) => {
+      $("#mr-note").innerHTML = `<span class="oktext">已删除</span> <span class="mono">${esc(res.rule.id)}</span>，审计回执 #${esc(res.receipt_seq)}，备份 <span class="mono">${esc(res.backup)}</span>`;
+    });
+  });
 }
 async function loadPolicy() {
   const p = await api("/api/policy");
-  $("#policy").innerHTML = `
+  $("#policy").innerHTML = mcpRulesHTML(p) + `
     <div class="card"><h2>网络白名单</h2><p class="muted">模式 ${esc(p.network_mode)}</p><p class="mono">${esc((p.allow||[]).join("  "))}</p></div>
     <div class="card"><h2>受保护分支</h2><p>force-push <span class="chip DENY">DENY</span>　普通 push <span class="chip STEP_UP">STEP_UP</span></p><p class="mono">${esc((p.protected_branches||[]).join(" "))}</p></div>
     <div class="card"><h2>凭据路径</h2><p class="mono">${esc((p.credential_prefixes||[]).join("\n"))}</p><p class="muted">允许的文件名 ${(p.allow_basenames||[]).join(", ")}</p></div>
     <div class="card"><h2>适配器</h2><table><tr><th>客户端</th><th>放行</th><th>需审批</th><th>说明</th></tr>
       ${(p.adapters||[]).map(a => `<tr><td>${esc(a.client)}</td><td>${esc(a.allow)}</td><td>${esc(a.step_up)}</td><td class="muted">${esc(a.note)}</td></tr>`).join("")}
     </table></div>
-    <h2>remit.yaml</h2><pre class="yaml mono">${esc(p.yaml || "")}</pre>`;
+    <h2>remit.yaml</h2><p class="muted mono">${esc(p.path || "")} · 版本 ${esc(p.version || "")}</p><pre class="yaml mono">${esc(p.yaml || "")}</pre>`;
+  bindMCPRules();
 }
 const SIM_KINDS = [
   ["shell", "shell 命令"], ["file_read", "读文件 file_read"], ["file_write", "写文件 file_write"],
