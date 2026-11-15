@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -221,6 +222,25 @@ func (s *Server) receipts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter := r.URL.Query().Get("filter")
+	// from/to select a seq range (the task replay's 查看审计回执); then every
+	// event type in the range is returned, oldest first.
+	from, _ := strconv.ParseUint(r.URL.Query().Get("from"), 10, 64)
+	to, _ := strconv.ParseUint(r.URL.Query().Get("to"), 10, 64)
+	if from > 0 && to >= from {
+		all, err := s.tail(sessionScan)
+		if err != nil && !os.IsNotExist(err) {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		out := []ledger.Receipt{}
+		for _, rec := range all {
+			if rec.Seq >= from && rec.Seq <= to {
+				out = append(out, rec)
+			}
+		}
+		writeJSON(w, map[string]any{"receipts": out})
+		return
+	}
 	var out []ledger.Receipt
 	for i := len(recs) - 1; i >= 0; i-- {
 		rec := recs[i]

@@ -18,12 +18,13 @@ New receipt types (`event_type`):
 |---|---|---|
 | `session.start` | `SessionStart` | `source` (startup / resume / clear / compact), `model` |
 | `prompt.submit` | `UserPromptSubmit`, Gemini `BeforeAgent` | prompt **summary**: secrets masked, whitespace collapsed, first 240 characters; `prompt_chars` |
-| `tool.result` | `PostToolUse`, `PostToolUseFailure`, Gemini `AfterTool` | `success`, `exit_code`, `interrupted`, `duration_ms` + `duration_from`, `files`, `output` (≤400 chars) or `error` (≤300 chars), all masked |
-| `agent.stop` | `Stop`, Gemini `AfterAgent` | last assistant message, masked, ≤300 chars |
+| `tool.result` | `PostToolUse`, `PostToolUseFailure`, Gemini `AfterTool` | `success`, `exit_code`, `interrupted`, `duration_ms` + `duration_from`, `files`, `output` (≤800 chars, line breaks kept) or `error` (≤300 chars), all masked; `result_links` for web / search tools |
+| `agent.stop` | `Stop`, Gemini `AfterAgent` | last assistant message, masked, ≤2000 chars, `message_chars`; Codex: `commentary`, `trigger`, `originator` from the transcript |
 | `session.end` | `SessionEnd` | `reason` |
 
 Decision receipts (`action.decision`) now also carry `cwd`, `turn_id` (Codex)
-and `tool_use_id`. A `tool.result` receipt points back at its decision with
+and `tool_use_id`, and, when capture is on, `activity.args_preview` /
+`activity.query` (see *Task replay*). A `tool.result` receipt points back at its decision with
 `ref_seq`; the sidecar pairs them by `tool_use_id` (Codex, Claude Code,
 WorkBuddy) or, when the agent sends none (Gemini), by the action digest. The
 console also pairs by `tool_use_id`, so pairing survives a sidecar restart.
@@ -95,6 +96,113 @@ activity receipts.
 ![Sessions list](img/activity-sessions-list.png)
 
 ![A live Codex 0.151 session](img/activity-codex-live.png)
+
+## Task replay (任务回放)
+
+The 会话 page groups each session into **tasks** (turns): what the user asked,
+every step the agent took, what it found, what it answered, and what was
+risky. It shows what ReinsAARM saw, which Codex does not show the user.
+
+### Capture
+
+Extra fields, all masked with `redact.Mask`, all `omitempty` (old receipts
+still verify and still render; missing fields show as "未记录" / "未采集"):
+
+| Field | Receipt | Content |
+|---|---|---|
+| `activity.args_preview` | `action.decision` | Tool input as indented JSON (MCP, web, read, …), ≤600 chars. Shell: the full command only when longer than the 180-char `command_preview`. Write / edit: string values cut to 160 chars ("…（共 N 字）"). |
+| `activity.query` | `action.decision` | Search text from `q`, `query`, `search_query`, `pattern`, … (Codex `web_run`: `system2_search_query[].q`, `find[].pattern`). |
+| `activity.result_links` | `tool.result` | Up to 8 `{url,title}` from web / search results ("Title (url)" or bare URLs). Query string, fragment and user:password are removed. |
+| `activity.message_chars` | `agent.stop` | Length of the whole final answer. |
+| `activity.commentary` | `agent.stop` | Codex only: up to 12 progress notes (`phase: commentary`) of this turn, ≤300 chars each. |
+| `activity.trigger`, `activity.originator` | `prompt.submit`, `agent.stop` | Codex only: `turn_attribution.turn_trigger` (composer / exec / `automation_heartbeat_scheduled`) and `session_meta.originator` (Codex Desktop / codex_exec). |
+
+Commentary, trigger and originator come from the Codex rollout transcript
+(`transcript_path` in the hook payload). It is read only when the path is
+absolute, ends in `.jsonl`, is a regular file and lies under
+`developer_home`; only the first 64 KB and the last 4 MB (Stop) / 1 MB
+(prompt) are read, so a 200 MB rollout costs little.
+
+Limits, in `config.yaml` of the state directory (restart `reinsaarm run`):
+
+```yaml
+capture:
+  off: false          # true: no previews, links or transcript; output 400, answer 300 (the old sizes)
+  args_preview: 600   # 0 turns args previews off
+  output_preview: 800
+  final_message: 2000
+  result_links: true
+  transcript: true    # Codex transcript: commentary, trigger, originator
+```
+
+### Turns
+
+A turn is the run of receipts with one `turn_id` (Codex), else from one prompt
+to the next. `session.start` belongs to the turn after it. Status: `done`
+(Stop seen), `running`, `no_stop` (a later turn or session end came without
+Stop), `decisions_only` (only pre-tool receipts: activity hooks were not
+installed). A running turn with no event for 30 minutes is `stale` and the
+session shows "30 分钟无活动".
+
+Steps get a category: `web` (web_fetch, or MCP tools named search / web /
+fetch / browse …), `mcp`, `read` (file_read or a read-only shell command such
+as `cat`, `ls`, `rg`), `write`, `shell`, `other`. Gaps of 20 s or more without
+hook events are shown as model thinking (between steps) or composing the
+answer (last step → Stop); `?gap=N` changes the threshold.
+
+Source: `automation` (trigger `automation*` or a `<heartbeat>` prompt),
+`desktop` / `cli` / `ide` from the originator, the client for WorkBuddy /
+Claude Code / Gemini, else `unknown` (来源未记录).
+
+### Risk flags
+
+| Code | Label | When |
+|---|---|---|
+| `deny` | 拒绝 | enforced DENY / DEFER |
+| `fail` | 失败 | `success:false`, a non-zero exit code, or — when the agent sends no exit code (Codex Bash) — an output with a Traceback, `XxxError:` or panic ("按输出判断") |
+| `outside_read` / `outside_write` / `outside_path` | 项目外读取 / 写入 / 路径 | a path outside the turn's `cwd` |
+| `no_rule_mcp` | 无规则放行 MCP | MCP call allowed only by `R-DEFAULT-ALLOW` |
+| `credential` | 命中凭证路径 | rule `R-CRED-PATH` matched |
+| `egress` | 出网 | a non-web step with hosts |
+| `untrusted_then_sensitive` | 不可信输入后敏感操作 | a write, changing shell command or egress after a web / search result in the same turn |
+
+### API
+
+All need the console token.
+
+- `GET /api/sessions` — each session adds `turns`, `status` (running /
+  turn_done / ended / idle / decisions_only), `model`, `source`,
+  `source_label`, `latest_title`, `latest_one_liner`, `risks`, `risky`.
+- `GET /api/sessions/{key}` — `{session, items, turns, policy}`;
+  `GET /api/sessions/{key}/turns` — `{turns}`. A turn has `index`, `id`,
+  `start`, `end`, `duration_ms`, `status`, `stale`, `prompt`, `title`,
+  `final`, `final_chars`, `commentary`, `source`, `source_label`, `trigger`,
+  `counts`, `denied`, `failed`, `one_liner`, `risks`, `gaps`, `think_ms`,
+  `seq_from`, `seq_to`, `untrusted`, `sensitive_after`, `has_previews`,
+  `coverage` (what the hooks cannot see), `steps`, `live`, `elapsed_ms`.
+  A step is a timeline item plus `index`, `category`, `label`, `server`,
+  `tool_name`, `query`, `paths[{path,outside}]`, `hosts`, `links`, `no_rule`,
+  `denied`, `failed`, `fail_source`, `fail_hint`, `credential`, `untrusted`,
+  `sensitive`, `after_untrusted`, `running`, `duration_ms`.
+  `policy` is `{mcp_rules, network_mode, confine_writes}`.
+- `GET /api/sessions/{key}/report?turn=N&format=md|json&tz=Asia/Singapore` —
+  the task report as a download (Markdown, or JSON with schema
+  `reinsaarm.task_report.v1`), including the chain check.
+- `GET /api/receipts?from=A&to=B` — every receipt type in a seq range (the
+  "查看审计回执" link); without `from`/`to` the decision stream is unchanged.
+
+### Console
+
+List: agent filter, 有风险, 今天 / 近 7 天 / 全部时间, one row per session
+with the latest task title, one-liner and risk chips. Detail: one card per
+task with the prompt, a one-line summary, a "Agent 说了什么 / ReinsAARM 看到了什么"
+strip (left: derived from the final answer and commentary), a time bar,
+the steps (expanded when running, failed, denied, outside the project, after
+untrusted input, or the first web result), the final answer, a 未覆盖 box,
+and export. Click a step for the side drawer with the full receipt. Deep
+links: `#/sessions/<key>/<turn>/<seq>`, `#/audit/<from>-<to>`,
+`#/policy/new-mcp-rule` (from "为这类 MCP 新建规则": a YAML snippet to copy that
+can simulate it; it never writes the profile).
 
 ## Live check (macOS, 2026-11-15)
 

@@ -55,6 +55,31 @@ type Options struct {
 	// PromptFullLimit runes) instead of a short summary. Off by default; set
 	// record_full_prompts: true in config.yaml.
 	FullPrompts bool
+	// OutputLimit and MessageLimit override the stored length of tool output
+	// and of the agent's final message (0 keeps OutputLimit / MessageLimit).
+	OutputLimit  int
+	MessageLimit int
+	// Links extracts URLs and titles from web and MCP results.
+	Links bool
+	// Transcript reads the agent's transcript file (Codex rollout) for the
+	// turn trigger, front end, and progress messages. Home bounds where that
+	// file may be: it must be under Home.
+	Transcript bool
+	Home       string
+}
+
+func (o Options) outputLimit() int {
+	if o.OutputLimit > 0 {
+		return o.OutputLimit
+	}
+	return OutputLimit
+}
+
+func (o Options) messageLimit() int {
+	if o.MessageLimit > 0 {
+		return o.MessageLimit
+	}
+	return MessageLimit
 }
 
 // Type maps a hook event name to a receipt event type. ok is false for
@@ -78,6 +103,12 @@ func Type(hook string) (string, bool) {
 // Build summarizes one observation payload. The payload is the hook JSON
 // (tool_input may be absent; file paths from it are passed in as paths).
 func Build(client, hook string, payload map[string]any, paths []string, opt Options) *ledger.Activity {
+	return BuildFor(client, hook, "", payload, paths, opt)
+}
+
+// BuildFor is Build with the normalized kind of the tool (mcp, web_fetch,
+// shell, ...), used to decide whether result links are extracted.
+func BuildFor(client, hook, kind string, payload map[string]any, paths []string, opt Options) *ledger.Activity {
 	a := &ledger.Activity{Hook: hook}
 	a.Model = str(payload, "model")
 	a.PermissionMode = str(payload, "permission_mode")
@@ -90,6 +121,10 @@ func Build(client, hook string, payload map[string]any, paths []string, opt Opti
 	case "UserPromptSubmit", "BeforeAgent":
 		prompt := str(payload, "prompt")
 		a.PromptChars = len([]rune(prompt))
+		if opt.Transcript {
+			t := ReadTranscript(str(payload, "transcript_path"), opt.Home, str(payload, "turn_id"), false)
+			a.Trigger, a.Originator = t.Trigger, t.Originator
+		}
 		if opt.FullPrompts {
 			p, cut := redact.Truncate(redact.Mask(prompt), PromptFullLimit)
 			a.Prompt, a.PromptFull = p, true
@@ -102,9 +137,17 @@ func Build(client, hook string, payload map[string]any, paths []string, opt Opti
 		if msg == "" {
 			msg = str(payload, "prompt_response")
 		}
-		a.Message = clipText(msg, MessageLimit, a)
+		a.MessageChars = len([]rune(msg))
+		a.Message = clipLines(msg, opt.messageLimit(), a)
+		if opt.Transcript {
+			t := ReadTranscript(str(payload, "transcript_path"), opt.Home, str(payload, "turn_id"), true)
+			a.Trigger, a.Originator, a.Commentary = t.Trigger, t.Originator, t.Commentary
+		}
 	case "PostToolUse", "PostToolUseFailure", "AfterTool":
-		toolResult(client, hook, payload, a)
+		toolResult(client, hook, payload, a, opt.outputLimit())
+		if opt.Links && linkKind(kind) {
+			a.ResultLinks = ResultLinks(responseText(payload))
+		}
 		a.Files = mergeFiles(paths, responseFiles(payload["tool_response"]))
 	}
 	return a
@@ -114,7 +157,7 @@ var leadingExit = regexp.MustCompile(`^\s*(?:Exit code|Process exited with code)
 
 var exitLine = regexp.MustCompile(`(?m)^\s*(?:Exit code|Process exited with code|exit code|exit status)[:\s]+(-?\d+)`)
 
-func toolResult(client, hook string, payload map[string]any, a *ledger.Activity) {
+func toolResult(client, hook string, payload map[string]any, a *ledger.Activity, outLimit int) {
 	resp := payload["tool_response"]
 	if ms, ok := num(payload["duration_ms"]); ok {
 		d := int64(ms)
@@ -138,7 +181,7 @@ func toolResult(client, hook string, payload map[string]any, a *ledger.Activity)
 	}
 	switch r := resp.(type) {
 	case string:
-		a.Output = clipText(r, OutputLimit, a)
+		a.Output = clipLines(r, outLimit, a)
 		// Codex apply_patch results start with "Exit code: N"; Bash output
 		// from Codex carries no exit code.
 		if m := leadingExit.FindStringSubmatch(r); m != nil {
@@ -173,7 +216,7 @@ func toolResult(client, hook string, payload map[string]any, a *ledger.Activity)
 			}
 			out += "stderr: " + se
 		}
-		a.Output = clipText(out, OutputLimit, a)
+		a.Output = clipLines(out, outLimit, a)
 		switch {
 		case a.ExitCode != nil:
 			ok := *a.ExitCode == 0 && !isErr
@@ -187,10 +230,10 @@ func toolResult(client, hook string, payload map[string]any, a *ledger.Activity)
 			}
 		}
 	case []any:
-		a.Output = clipText(firstText(map[string]any{"content": r}, "content"), OutputLimit, a)
+		a.Output = clipLines(firstText(map[string]any{"content": r}, "content"), outLimit, a)
 	case nil:
 	default:
-		a.Output = clipText(fmt.Sprint(r), OutputLimit, a)
+		a.Output = clipLines(fmt.Sprint(r), outLimit, a)
 	}
 	if a.Success == nil && a.Interrupted {
 		f := false
